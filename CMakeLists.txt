@@ -13,5 +13,10 @@ FetchContent_Declare(SFML
 FetchContent_MakeAvailable(SFML)
 
 add_executable(main src/main.cpp)
+add_executable(audio_stream src/audio_stream.cpp)
+
 target_compile_features(main PRIVATE cxx_std_17)
+target_compile_features(audio_stream PRIVATE cxx_std_17)
+
 target_link_libraries(main PRIVATE SFML::Graphics SFML::Audio)
+target_link_libraries(audio_stream PRIVATE SFML::Audio)
