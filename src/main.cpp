@@ -696,19 +696,16 @@ int main()
     sf::FloatRect microphoneBounds = microphone.getGlobalBounds();
 
     // Settings gear (⚙️)
-    sf::Text gear(font, u8"\u2699", 20);
-    // Play/Pause button for selected note
-    sf::Text playBtn(font, "▶", 18);
-    playBtn.setFillColor(textCol);
-    playBtn.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 140.f, 7.f));
-    sf::FloatRect playBounds = playBtn.getGlobalBounds();
-
-
-
+    sf::Text gear(font, "settings", 18);
     gear.setFillColor(textCol);
-    gear.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 92.f, 6.f)); // between mic and plus
+    gear.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 180.f, 6.f)); // between mic and plus
     sf::FloatRect gearBounds = gear.getGlobalBounds();
 
+    // Play/Pause button for selected note
+    sf::Text playBtn(font, "play", 18);
+    playBtn.setFillColor(textCol);
+    playBtn.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 220.f, 7.f));
+    sf::FloatRect playBounds = playBtn.getGlobalBounds();
 
     // Notes
     std::vector<Note> notes = scanVoiceNotes();
@@ -736,7 +733,7 @@ int main()
         if (isPlaying && player) {
             player->stop();
             isPlaying = false;
-            playBtn.setString("▶");
+            playBtn.setString("play");
             return;
         }
 
@@ -748,9 +745,8 @@ int main()
         player.emplace(playBuffer);      // <-- construct with buffer (SFML 3)
         player->play();
         isPlaying = true;
-        playBtn.setString("⏸");
+        playBtn.setString("stop");
     };
-
 
     // Scrolling
     float listScroll = 0.f;
@@ -870,7 +866,7 @@ int main()
                             selected = (int)notes.size() - 1;
                             editorScroll = 0.f;
                             requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
-                        else if (gearBounds.contains(mp)) {
+                        } else if (gearBounds.contains(mp)) {
                             // Temporarily drop top-most so the dialog isn’t hidden
                             setAlwaysOnTop(win, false);
                             bool changed = openSettingsWindow(win, settingsMgr);
