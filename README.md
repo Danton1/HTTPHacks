@@ -22,6 +22,11 @@ Run to execute program:
 .\build\bin\Debug\main.exe
 ```
 
+To run the whisper model:
+Inside the root of whisper.cpp
+```
+"./build/bin/Release/whisper-cli.exe" -f "samples/jfk.wav"
+```
 ---
 
 <U>Project Members</U><br>
