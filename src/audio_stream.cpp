@@ -11,6 +11,7 @@
 #include <cmath>
 #include <vector>
 #include <fstream>
+#include "settings.h"
 
 using namespace std;
 
@@ -40,9 +41,17 @@ int startRecordAudioFromMicrophone() {
         cout << "audio capture device is not found";
         return 1;
     }
-    
+
+    if (!Settings::audio_input_device.empty()) {
+        recorder.setDevice(Settings::audio_input_device); // ignore failure -> SFML will keep current
+    }
     // start the capture
-    recorder.start();
+
+    if (!recorder.start()) {
+        // error: failed to start audio capture
+        cout << "failed to start audio capture";
+        return 1;
+    }
 
     cout << "Recording..." << endl;
 
