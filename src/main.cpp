@@ -86,6 +86,85 @@ static void setAlwaysOnTop(sf::Window&, bool) {}
 static sf::Vector2i rightEdgeStart(unsigned, unsigned, int = 16, int = 64) { return {50, 50}; }
 #endif
 
+// ---- Hotkey parsing helpers ----
+struct Hotkey {
+    bool ctrl{false}, alt{false}, shift{false};
+    sf::Keyboard::Scancode key{sf::Keyboard::Scancode::Unknown};
+    bool valid{false};
+};
+
+static std::string up(std::string s) {
+    for (auto& c : s) c = (char)std::toupper((unsigned char)c);
+    return s;
+}
+
+static sf::Keyboard::Scancode scanFromToken(const std::string& t) {
+    // Letters
+    if (t.size() == 1 && t[0] >= 'A' && t[0] <= 'Z')
+        return (sf::Keyboard::Scancode)((int)sf::Keyboard::Scancode::A + (t[0] - 'A'));
+    // Digits
+    if (t.size() == 1 && t[0] >= '0' && t[0] <= '9')
+        return (sf::Keyboard::Scancode)((int)sf::Keyboard::Scancode::Num0 + (t[0] - '0'));
+    // Numpad digits
+    if (t.size() == 2 && t[0] == 'N' && t[1] >= '0' && t[1] <= '9')
+        return (sf::Keyboard::Scancode)((int)sf::Keyboard::Scancode::Numpad0 + (t[1] - '0'));
+    // Function keys
+    if (t.size() >= 2 && t[0] == 'F') {
+        int f = std::atoi(t.c_str() + 1);
+        if (f >= 1 && f <= 24) return (sf::Keyboard::Scancode)((int)sf::Keyboard::Scancode::F1 + (f - 1));
+    }
+    // A few common extras
+    if (t == "SPACE") return sf::Keyboard::Scancode::Space;
+    if (t == "ENTER" || t == "RETURN") return sf::Keyboard::Scancode::Enter;
+    if (t == "TAB") return sf::Keyboard::Scancode::Tab;
+    if (t == "ESC" || t == "ESCAPE") return sf::Keyboard::Scancode::Escape;
+    if (t == "MINUS" || t == "-") return sf::Keyboard::Scancode::Hyphen;
+    if (t == "EQUAL" || t == "=") return sf::Keyboard::Scancode::Equal;
+    if (t == "LEFTBRACKET" || t == "[") return sf::Keyboard::Scancode::LBracket;
+    if (t == "RIGHTBRACKET" || t == "]") return sf::Keyboard::Scancode::RBracket;
+    if (t == "BACKSLASH" || t == "\\") return sf::Keyboard::Scancode::Backslash;
+    if (t == "SEMICOLON" || t == ";") return sf::Keyboard::Scancode::Semicolon;
+    if (t == "APOSTROPHE" || t == "'") return sf::Keyboard::Scancode::Apostrophe;
+    if (t == "GRAVE" || t == "`") return sf::Keyboard::Scancode::Grave;
+    if (t == "COMMA" || t == ",") return sf::Keyboard::Scancode::Comma;
+    if (t == "PERIOD" || t == ".") return sf::Keyboard::Scancode::Period;
+    if (t == "SLASH" || t == "/") return sf::Keyboard::Scancode::Slash;
+
+    return sf::Keyboard::Scancode::Unknown;
+}
+
+static Hotkey parseHotkey(std::string s) {
+    Hotkey h;
+    if (s.empty()) return h;
+    s = up(s);
+    // split by '+'
+    std::string tok;
+    for (size_t i = 0, j; i <= s.size(); i = j + 1) {
+        j = (i == s.size() ? i : s.find('+', i));
+        if (j == std::string::npos) j = s.size();
+        tok = s.substr(i, j - i);
+        if (tok == "CTRL" || tok == "CONTROL") h.ctrl = true;
+        else if (tok == "ALT") h.alt = true;
+        else if (tok == "SHIFT") h.shift = true;
+        else {
+            h.key = scanFromToken(tok);
+        }
+        if (j >= s.size()) break;
+    }
+    h.valid = (h.key != sf::Keyboard::Scancode::Unknown);
+    return h;
+}
+
+static bool matchHotkey(const sf::Event::KeyPressed& e, const Hotkey& h) {
+    if (!h.valid) return false;
+    if (e.scancode != h.key) return false;
+    if (!!e.control != h.ctrl) return false;
+    if (!!e.alt     != h.alt)  return false;
+    if (!!e.shift   != h.shift) return false;
+    return true;
+}
+
+
 // ---------- Data ----------
 struct Note {
     std::string base;      // e.g., "note_2025-11-09_18-12-30"
@@ -651,6 +730,10 @@ int main()
     settingsMgr.applySettings();                     // load on start (reads file or creates defaults)
     setAlwaysOnTop(win, Settings::always_on_top);    // honor setting immediately
 
+    // Parse hotkeys from settings
+    Hotkey hkRecord = parseHotkey(Settings::keybinding_start_stop_recording);
+    Hotkey hkOpenNotes = parseHotkey(Settings::keybinding_open_notes_window);
+
     win.setFramerateLimit(144);
     win.setPosition(rightEdgeStart(HUB_W, HUB_H));
 
@@ -709,7 +792,7 @@ int main()
 
     // State flags
     bool isRecording = false;            // replaces string check "mic"/"stop"
-    // isPlaying already exists below; keep it for the note player
+
 
     // Load textures
     sf::Texture texGear, texMicOff, texMicOn, texPlay, texPause;
@@ -755,7 +838,6 @@ int main()
     spGear.setPosition({ X_GEAR, ICON_Y });
     sf::FloatRect gearBounds = spGear.getGlobalBounds();
 
-
     // Notes
     std::vector<Note> notes = scanVoiceNotes();
     if (notes.empty()) {
@@ -766,6 +848,22 @@ int main()
     }
 
     int selected = 0;
+
+    // Button actions
+    auto toggleRecording = [&](){
+        if (!isRecording) {
+            startRecordAudioFromMicrophone();
+            isRecording = true;
+            spMic.setTexture(texMicOn);
+        } else {
+            stopRecordAudioFromMicrophone();
+            isRecording = false;
+            spMic.setTexture(texMicOff);
+            // Refresh newest notes after recording/transcription
+            notes = scanVoiceNotes();
+            if (!notes.empty()) selected = 0;
+        }
+    };
 
     // Simple audio player state
     sf::SoundBuffer playBuffer;
@@ -860,6 +958,17 @@ int main()
                     requestSaveAt = std::chrono::steady_clock::now();
                 }
 
+                // Settings-defined: Start/Stop Recording
+                if (matchHotkey(*k, hkRecord)) {
+                    toggleRecording();
+                }
+
+                // Settings-defined "Open Notes Window"
+                // (Bring the window to front.)
+                if (matchHotkey(*k, hkOpenNotes)) {
+                    win.requestFocus();
+                }
+
                 // Backspace handling (editor only)
                 if (k->scancode == sf::Keyboard::Scancode::Backspace) {
                     if (!notes[selected].text.empty()) {
@@ -937,6 +1046,9 @@ int main()
                                     notes.push_back(std::move(n));
                                     selected = 0;
                                 }
+                                // Re-parse hotkeys if user changed them
+                                hkRecord   = parseHotkey(Settings::keybinding_start_stop_recording);
+                                hkOpenNotes= parseHotkey(Settings::keybinding_open_notes_window);
                             }
                         }
                         else if (playBounds.contains(mp)) {
