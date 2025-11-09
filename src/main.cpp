@@ -28,6 +28,10 @@
 #include <iostream>
 #include <SFML/Audio/SoundRecorder.hpp>
 #include <filesystem>
+#include <unordered_map>
+
+#include "SFML/Audio/Sound.hpp"
+#include "SFML/Audio/SoundBuffer.hpp"
 
 #if defined(_WIN32)
   #ifndef NOMINMAX
@@ -618,7 +622,6 @@ int main()
     setAlwaysOnTop(win, Settings::always_on_top);    // honor setting immediately
 
     win.setFramerateLimit(144);
-    setAlwaysOnTop(win, true);
     win.setPosition(rightEdgeStart(HUB_W, HUB_H));
 
     // Dragging by header
@@ -686,32 +689,7 @@ int main()
     playBtn.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 140.f, 7.f));
     sf::FloatRect playBounds = playBtn.getGlobalBounds();
 
-    // Simple audio player state
-    sf::SoundBuffer playBuffer;
-    sf::Sound       player;
-    bool            isPlaying = false;
 
-    auto playSelected = [&](){
-        if (selected < 0 || selected >= (int)notes.size()) return;
-        const auto& n = notes[selected];
-        if (n.wavPath.empty()) return;
-        if (!std::filesystem::exists(n.wavPath)) return;
-
-        if (isPlaying) {
-            player.stop();
-            isPlaying = false;
-            playBtn.setString("▶");
-            return;
-        }
-        if (!playBuffer.loadFromFile(n.wavPath)) {
-            std::cerr << "Failed to load " << n.wavPath << "\n";
-            return;
-        }
-        player.setBuffer(playBuffer);
-        player.play();
-        isPlaying = true;
-        playBtn.setString("⏸");
-    };
 
     gear.setFillColor(textCol);
     gear.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 92.f, 6.f)); // between mic and plus
@@ -721,9 +699,44 @@ int main()
     // Notes
     std::vector<Note> notes = scanVoiceNotes();
     if (notes.empty()) {
-        notes.push_back({std::string("Take a note...\n"), nowShort()});
+        auto n = createNewTextNote();      // creates a new .txt on disk
+        n.text = "Take a note...\n";       // override initial content
+        saveNoteText(n);                   // persist the change
+        notes.push_back(std::move(n));
     }
+
     int selected = 0;
+
+    // Simple audio player state
+    sf::SoundBuffer playBuffer;
+    std::optional<sf::Sound> player;
+    bool            isPlaying = false;
+
+    auto playSelected = [&](){
+        if (selected < 0 || selected >= static_cast<int>(notes.size())) return;
+        const auto& n = notes[selected];
+        if (n.wavPath.empty()) return;
+        if (!std::filesystem::exists(n.wavPath)) return;
+
+        // If already playing, stop and toggle UI
+        if (isPlaying && player) {
+            player->stop();
+            isPlaying = false;
+            playBtn.setString("▶");
+            return;
+        }
+
+        // Load buffer for this note and (re)construct the sound
+        if (!playBuffer.loadFromFile(n.wavPath)) {
+            std::cerr << "Failed to load " << n.wavPath << "\n";
+            return;
+        }
+        player.emplace(playBuffer);      // <-- construct with buffer (SFML 3)
+        player->play();
+        isPlaying = true;
+        playBtn.setString("⏸");
+    };
+
 
     // Scrolling
     float listScroll = 0.f;
@@ -894,7 +907,7 @@ int main()
                             editorScroll = 0.f;
                             // stop playback if switching notes
                             if (isPlaying) {
-                                player.stop();
+                                player->stop();
                                 isPlaying = false;
                                 playBtn.setString("▶");
                             }
@@ -1013,7 +1026,7 @@ int main()
         win.setView(win.getDefaultView());
 
         // If finished playing, reset icon
-        if (isPlaying && player.getStatus() != sf::Sound::Playing) {
+        if (isPlaying && player && player->getStatus() != sf::Sound::Status::Playing) {
             isPlaying = false;
             playBtn.setString("▶");
         }
