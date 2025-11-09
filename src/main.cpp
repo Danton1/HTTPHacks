@@ -12,6 +12,7 @@
       - Notes autosave every few seconds and on Ctrl+S
 */
 
+#include "audio_stream.h"
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
 #include <optional>
@@ -239,8 +240,14 @@ int main()
 
     sf::Text closeX(font, "x", 18);
     closeX.setFillColor(textCol);
-    closeX.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 26.f, 8.f));
+    closeX.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 26.f, 6.f));
     sf::FloatRect closeBounds = closeX.getGlobalBounds();
+
+    // Record button
+    sf::Text microphone(font, "mic", 20);
+    microphone.setFillColor(textCol);
+    microphone.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 110.f, 6.f));
+    sf::FloatRect microphoneBounds = microphone.getGlobalBounds();
 
     // Notes
     std::vector<Note> notes = loadNotes();
@@ -360,6 +367,8 @@ int main()
                             selected = static_cast<int>(notes.size()) - 1;
                             editorScroll = 0.f;
                             requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+                        } else if(microphoneBounds.contains(mp)) {
+                            recordAudioFromMicrophone();
                         } else {
                             dragging = true;
                             sf::Vector2i mouseScreen = sf::Mouse::getPosition();
@@ -422,6 +431,7 @@ int main()
             win.draw(titleText);
             win.draw(plus);
             win.draw(closeX);
+            win.draw(microphone);
         }
 
         // List panel

@@ -4,6 +4,8 @@
 
 #include <iostream>
 #include <string>
+#include <thread>
+#include <chrono>
 // Important library, already exists, std library, reduces written code, imports every function call 
 using namespace std; 
 // << similar to a print function
@@ -15,6 +17,11 @@ int main() {
     cout << "Type Input: ";
     cin >> input;
     cout << input;
+
+    // Sleep test
+    cout << "Program will sleep 3 seconds" << endl;
+    this_thread::sleep_for(chrono::seconds(3));
+    cout << "Program awake" << endl;
 
     return 0;
 }

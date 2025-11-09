@@ -12,11 +12,7 @@ FetchContent_Declare(SFML
     SYSTEM)
 FetchContent_MakeAvailable(SFML)
 
-add_executable(main src/main.cpp)
-add_executable(audio_stream src/audio_stream.cpp)
-
+add_executable(main src/main.cpp src/audio_stream.cpp)
+target_include_directories(main PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_features(main PRIVATE cxx_std_17)
-target_compile_features(audio_stream PRIVATE cxx_std_17)
-
 target_link_libraries(main PRIVATE SFML::Graphics SFML::Audio)
-target_link_libraries(audio_stream PRIVATE SFML::Audio)

@@ -1,9 +1,11 @@
 #include <SFML/Audio/SoundBufferRecorder.hpp>
 #include <iostream>
 #include <string>
+#include <thread>
+#include <chrono>
 using namespace std;
 
-int main() {
+int recordAudioFromMicrophone() {
     bool recordLoop = true;
     string recordTextInput;
 
@@ -11,7 +13,7 @@ int main() {
     if (!sf::SoundBufferRecorder::isAvailable())
     {
         // error: audio capture is not available on this system
-        cout << "test";
+        cout << "audio capture device is not found";
     }
     
     // create the recorder
@@ -22,10 +24,8 @@ int main() {
     
     // wait...
     while(recordLoop) {
+        this_thread::sleep_for(chrono::seconds(3));
 
-        cout << "Enter Input when finished recording: ";
-        cin >> recordTextInput;
-        cout << recordTextInput;
         recordLoop = false;
     }
     
