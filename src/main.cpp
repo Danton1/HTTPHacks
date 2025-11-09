@@ -611,6 +611,7 @@ int main()
                                 microphone.setString("stop");
                             } else {
                                 stopRecordAudioFromMicrophone();
+                                sendAudioFileToWhisper();
                                 microphone.setString("mic");
                             }
                             // Re-layout since width changed

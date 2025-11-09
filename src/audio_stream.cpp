@@ -1,7 +1,15 @@
+#include <../whisper/include/whisper.h>
 #include <SFML/Audio/SoundBufferRecorder.hpp>
+#include <SFML/Audio/SoundBuffer.hpp>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+#include <cmath>
+#include <vector>
 #include <fstream>
 
 using namespace std;
@@ -64,5 +72,94 @@ int stopRecordAudioFromMicrophone() {
     ofstream out(textPath);
     cout<<"Saved: " << textPath << "\n";
 
+    return 0;
+}
+
+int sendAudioFileToWhisper() {
+    // Load the recorded WAV file saved by stopRecordAudioFromMicrophone()
+    sf::SoundBuffer buffer;
+    if (!buffer.loadFromFile("record.wav")) {
+        std::cerr << "Failed to load record.wav\n";
+        return 1;
+    }
+
+    auto samples16 = buffer.getSamples();
+    const std::size_t sampleCount = buffer.getSampleCount(); // total samples (frames * channels)
+    const unsigned sampleRate = buffer.getSampleRate();
+    const unsigned channelCount = buffer.getChannelCount();
+
+    // Convert to mono float [-1,1], downmix if needed (at the source sample rate)
+    const std::size_t frames = sampleCount / channelCount;
+    std::vector<float> pcmf32;
+    pcmf32.resize(frames);
+
+    for (std::size_t i = 0; i < frames; ++i) {
+        int32_t acc = 0;
+        for (unsigned ch = 0; ch < channelCount; ++ch) {
+            acc += samples16[i * channelCount + ch];
+        }
+        float f = static_cast<float>(acc) / (static_cast<float>(channelCount) * 32768.0f);
+        if (f > 1.0f) f = 1.0f;
+        if (f < -1.0f) f = -1.0f;
+        pcmf32[i] = f;
+    }
+
+    // If sample rate differs, resample to WHISPER_SAMPLE_RATE using linear interpolation
+    std::vector<float> pcmf32_resampled;
+    if (sampleRate != WHISPER_SAMPLE_RATE) {
+        const int in_rate = static_cast<int>(sampleRate);
+        const int out_rate = WHISPER_SAMPLE_RATE;
+        const std::size_t in_frames = pcmf32.size();
+        if (in_frames == 0) {
+            std::cerr << "No audio frames to resample\n";
+            return 2;
+        }
+
+        const std::size_t out_frames = static_cast<std::size_t>( (double)in_frames * out_rate / in_rate + 0.5 );
+        pcmf32_resampled.resize(out_frames);
+
+        const double rate_ratio = static_cast<double>(in_rate) / static_cast<double>(out_rate);
+        for (std::size_t i = 0; i < out_frames; ++i) {
+            double src = i * rate_ratio;
+            std::size_t idx = static_cast<std::size_t>(std::floor(src));
+            double frac = src - (double)idx;
+            float v0 = pcmf32[idx];
+            float v1 = (idx + 1 < in_frames) ? pcmf32[idx + 1] : v0;
+            pcmf32_resampled[i] = static_cast<float>(v0 * (1.0 - frac) + v1 * frac);
+        }
+        std::cout << "Resampled audio: " << in_frames << " -> " << out_frames << " frames (" << sampleRate << " -> " << WHISPER_SAMPLE_RATE << " Hz)\n";
+    } else {
+        pcmf32_resampled.swap(pcmf32);
+    }
+
+    // Initialize model/context
+    whisper_context_params cparams = whisper_context_default_params();
+    struct whisper_context * ctx = whisper_init_from_file_with_params("whisper/models/ggml-base.en.bin", cparams);
+    if (!ctx) {
+        std::cerr << "Failed to load model 'whisper/models/ggml-base.en.bin'\n";
+        return 3;
+    }
+
+    struct whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+    wparams.n_threads = 4; // TODO: tune as appropriate
+
+    std::cout << "starting whisper transcription\n";
+
+    // run transcription
+    const int n_samples = static_cast<int>(pcmf32_resampled.size());
+    if (whisper_full(ctx, wparams, pcmf32_resampled.data(), n_samples) != 0) {
+        std::fprintf(stderr, "whisper_full failed\n");
+        whisper_free(ctx);
+        return 5;
+    }
+
+    // print segments
+    const int n_segments = whisper_full_n_segments(ctx);
+    for (int i = 0; i < n_segments; ++i) {
+        const char *seg_text = whisper_full_get_segment_text(ctx, i);
+        printf("%s\n", seg_text ? seg_text : "");
+    }
+
+    whisper_free(ctx);
     return 0;
 }
