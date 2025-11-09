@@ -368,7 +368,15 @@ int main()
                             editorScroll = 0.f;
                             requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
                         } else if(microphoneBounds.contains(mp)) {
-                            recordAudioFromMicrophone();
+                            if(microphone.getString() == "mic") {
+                                startRecordAudioFromMicrophone();
+                                microphone.setString("stop");
+                                win.draw(microphone);   
+                            } else {
+                                stopRecordAudioFromMicrophone();
+                                microphone.setString("mic");
+                                win.draw(microphone);
+                            }
                         } else {
                             dragging = true;
                             sf::Vector2i mouseScreen = sf::Mouse::getPosition();

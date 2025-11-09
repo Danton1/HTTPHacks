@@ -1,6 +1,7 @@
 #ifndef AUDIO_STREAM_H
 #define AUDIO_STREAM_H
 
-int recordAudioFromMicrophone();
+int startRecordAudioFromMicrophone();
+int stopRecordAudioFromMicrophone();
 
 #endif

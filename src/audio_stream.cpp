@@ -5,7 +5,9 @@
 #include <chrono>
 using namespace std;
 
-int recordAudioFromMicrophone() {
+sf::SoundBufferRecorder recorder;
+
+int startRecordAudioFromMicrophone() {
     bool recordLoop = true;
     string recordTextInput;
 
@@ -16,19 +18,13 @@ int recordAudioFromMicrophone() {
         cout << "audio capture device is not found";
     }
     
-    // create the recorder
-    sf::SoundBufferRecorder recorder;
-    
     // start the capture
     recorder.start();
-    
-    // wait...
-    while(recordLoop) {
-        this_thread::sleep_for(chrono::seconds(3));
 
-        recordLoop = false;
-    }
-    
+    return 0;
+}
+
+int stopRecordAudioFromMicrophone() {    
     // stop the capture
     recorder.stop();
     
