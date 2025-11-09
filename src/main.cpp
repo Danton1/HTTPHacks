@@ -137,24 +137,35 @@ static bool spit(const std::string& path, const std::string& data) {
 static std::vector<Note> scanVoiceNotes() {
     std::vector<Note> out;
     std::string dir = normalizedVoiceDir();
+    // Ensure directory exists or bail out safely (no throw)
+    std::error_code ec;
+    if (!std::filesystem::exists(dir, ec)) {
+        std::filesystem::create_directories(dir, ec);
+        return out; // empty
+    }
 
     std::unordered_map<std::string, Note> map; // base -> Note
+    try {
+        for (auto& p : std::filesystem::directory_iterator(dir)) {
+            if (!p.is_regular_file()) continue;
+            auto path = p.path().string();
+            auto ext  = p.path().extension().string();
+            auto stem = p.path().stem().string();   // base name without extension
 
-    for (auto& p : std::filesystem::directory_iterator(dir)) {
-        if (!p.is_regular_file()) continue;
-        auto path = p.path().string();
-        auto ext  = p.path().extension().string();
-        auto stem = p.path().stem().string();   // base name without extension
-
-        if (ext == ".txt" || ext == ".TXT") {
-            Note& n = map[stem];
-            n.base    = stem;
-            n.txtPath = path;
-        } else if (ext == ".wav" || ext == ".WAV") {
-            Note& n = map[stem];
-            n.base    = stem;
-            n.wavPath = path;
+            if (ext == ".txt" || ext == ".TXT") {
+                Note& n = map[stem];
+                n.base    = stem;
+                n.txtPath = path;
+            } else if (ext == ".wav" || ext == ".WAV") {
+                Note& n = map[stem];
+                n.base    = stem;
+                n.wavPath = path;
+            }
         }
+    } catch (...) {
+        // Folder got deleted/locked mid-scan; return gracefully
+        std::cerr << "Error scanning voice notes directory.\n";
+        return out;
     }
 
     // load text + created
@@ -431,6 +442,9 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
                                 std::cerr << "Invalid inputs; please fill all required fields.\n";
                             } else {
                                 Settings::save_path = v_save_path;
+                                // Ensure folder exists (avoid iterator throws later)
+                                std::error_code ec_mkdir;
+                                std::filesystem::create_directories(v_voice_dir, ec_mkdir);
                                 Settings::voice_notes_path = v_voice_dir;
                                 Settings::audio_input_device = v_input_dev;
                                 Settings::post_formatter = v_formatter;
@@ -856,15 +870,30 @@ int main()
                             selected = (int)notes.size() - 1;
                             editorScroll = 0.f;
                             requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
-                        } else if (gearBounds.contains(mp)) {
-                            // Make sure the settings dialog isn’t hidden
+                        else if (gearBounds.contains(mp)) {
+                            // Temporarily drop top-most so the dialog isn’t hidden
                             setAlwaysOnTop(win, false);
-                            if (openSettingsWindow(win, settingsMgr)) {
-                                // Re-apply settings that affect the main window
-                                setAlwaysOnTop(win, Settings::always_on_top);
-                            } else {
-                                // Even on cancel, restore to current setting
-                                setAlwaysOnTop(win, Settings::always_on_top);
+                            bool changed = openSettingsWindow(win, settingsMgr);
+                            // Re-apply main window top-most according to current setting
+                            setAlwaysOnTop(win, Settings::always_on_top);
+
+                            if (changed) {
+                                // Reflect new folder immediately; never throw here
+                                auto prevSel = selected;
+                                auto v = scanVoiceNotes();
+                                if (!v.empty()) {
+                                    notes = std::move(v);
+                                    // Keep selection in-bounds
+                                    if (prevSel >= (int)notes.size()) prevSel = (int)notes.size() - 1;
+                                    if (prevSel < 0) prevSel = 0;
+                                    selected = prevSel;
+                                } else {
+                                    // Nothing in the folder? Create one starter note
+                                    auto n = createNewTextNote();
+                                    notes.clear();
+                                    notes.push_back(std::move(n));
+                                    selected = 0;
+                                }
                             }
                         } else if (playBounds.contains(mp)) {
                             playSelected();
@@ -1005,6 +1034,9 @@ int main()
         win.setView(editorView);
         {
             if (font.getInfo().family.size()) {
+                if (notes.empty() || selected < 0 || selected >= (int)notes.size()) {
+                    continue;
+                }
                 editorText.setString(notes[selected].text);
                 editorText.setPosition(sf::Vector2f(8.f, 8.f - editorScroll));
                 win.draw(editorText);
