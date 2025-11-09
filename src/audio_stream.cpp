@@ -106,6 +106,8 @@ int sendAudioFileToWhisper(std::string audioPath, std::string textPath) {
         return 5;
     }
 
+    std::cout << "transcription completed, writing text file\n";
+
     // print segments to text file
     ofstream audioTextFile;
     audioTextFile.open(textPath);
