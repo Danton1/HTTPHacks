@@ -26,6 +26,7 @@
 #include <cmath> // std::floor
 #include "settings.h"
 #include <iostream>
+#include <SFML/Audio/SoundRecorder.hpp>
 
 #if defined(_WIN32)
   #ifndef NOMINMAX
@@ -185,65 +186,105 @@ static std::string firstLine(const std::string& s)
 template <typename T>
 static T clamp(T v, T lo, T hi) { return std::max(lo, std::min(v, hi)); }
 
-// --- modal Settings UI ---
+// --- modal Settings UI with mic dropdown, blinking caret, spacing, validation ---
 static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
-    // Match main window palette
+    // Theme (match main window)
     const sf::Color bg(27,27,27);
     const sf::Color panel(38,38,38);
     const sf::Color accent(0,120,215);
     const sf::Color textCol(230,230,230);
 
-    // Correct size (W,H)
-    sf::RenderWindow win(sf::VideoMode({520u, 420u}), "Settings",
+    // Window (w,h)
+    sf::RenderWindow win(sf::VideoMode({560u, 500u}), "Settings",
                          sf::Style::Titlebar | sf::Style::Close);
 
-    // Center relative to parent
+    // --- Center on screen (Windows) / else center relative to parent ---
+#if defined(_WIN32)
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    auto sSz  = win.getSize();
+    win.setPosition({ (screenW - (int)sSz.x) / 2, (screenH - (int)sSz.y) / 2 });
+#else
     auto pPos = parent.getPosition();
     auto pSz  = parent.getSize();
-    auto sSz  = win.getSize();
-    win.setPosition({ pPos.x + (int)pSz.x/2 - (int)sSz.x/2,
-                      pPos.y + (int)pSz.y/2 - (int)sSz.y/2 });
+    auto sSz2  = win.getSize();
+    win.setPosition({ pPos.x + (int)pSz.x/2 - (int)sSz2.x/2,
+                      pPos.y + (int)pSz.y/2 - (int)sSz2.y/2 });
+#endif
 
+    // Make the dialog front-most while open
     win.setFramerateLimit(120);
-
-    // Put dialog above and focus it
     setAlwaysOnTop(win, true);
     win.requestFocus();
 
-    // Font — reuse style, check result to avoid [[nodiscard]] warning
+    // Font
     sf::Font font;
     bool fontOk = font.openFromFile(FONT_PATH);
 
-    // Editable copies of current values
+    // ------- Load existing values into edit buffers -------
     std::string v_save_path  = Settings::save_path;
     std::string v_voice_dir  = Settings::voice_notes_path;
-    std::string v_input_dev  = Settings::audio_input_device;
-    bool v_topmost           = Settings::always_on_top;
-    bool v_hide_taskbar      = Settings::hide_in_taskbar;
     std::string v_formatter  = Settings::post_formatter;
     std::string v_hot_rec    = Settings::keybinding_start_stop_recording;
     std::string v_hot_notes  = Settings::keybinding_open_notes_window;
+    bool        v_topmost    = Settings::always_on_top;
+    bool        v_hide_tb    = Settings::hide_in_taskbar;
 
-    // Simple text fields as rectangles with focus index
+    // ------- Mic devices (dropdown) -------
+    std::vector<std::string> devices;
+    if (sf::SoundRecorder::isAvailable())
+        devices = sf::SoundRecorder::getAvailableDevices();
+    if (devices.empty()) devices.push_back("No capture devices found");
+    std::string defaultDev = sf::SoundRecorder::getDefaultDevice();
+
+    int selectedDev = 0;
+    if (!Settings::audio_input_device.empty()) {
+        for (int i=0;i<(int)devices.size();++i)
+            if (devices[i] == Settings::audio_input_device) { selectedDev = i; break; }
+    } else {
+        for (int i=0;i<(int)devices.size();++i)
+            if (devices[i] == defaultDev) { selectedDev = i; break; }
+    }
+    std::string v_input_dev = devices[selectedDev];
+    bool dropdownOpen = false;
+
+    // ------- Text fields layout (added spacing) -------
     struct Field { std::string* s; sf::FloatRect box; const char* label; };
     std::vector<Field> fields;
 
-    auto makeBox = [&](float y) { return sf::FloatRect({20.f, y}, {480.f, 30.f}); };
+    auto makeBox = [&](float y) { return sf::FloatRect({24.f, y}, {512.f, 34.f}); };
 
-    fields.push_back({ &v_save_path, makeBox(20.f),  "save_path" });
-    fields.push_back({ &v_voice_dir, makeBox(60.f),  "voice_notes_path" });
-    fields.push_back({ &v_input_dev, makeBox(100.f), "audio_input_device" });
-    fields.push_back({ &v_formatter, makeBox(140.f), "post_formatter" });
-    fields.push_back({ &v_hot_rec,   makeBox(180.f), "keybinding_start_stop_recording" });
-    fields.push_back({ &v_hot_notes, makeBox(220.f), "keybinding_open_notes_window" });
+    float y = 24.f;
+    const float gap = 48.f; // extra spacing between lines
 
-    sf::FloatRect box_topmost({20.f, 270.f}, {220.f, 26.f});
-    sf::FloatRect box_hideTB({260.f, 270.f}, {220.f, 26.f});
+    fields.push_back({ &v_save_path, makeBox(y), "save_path" }); y += gap;
+    fields.push_back({ &v_voice_dir, makeBox(y), "voice_notes_path" }); y += gap;
+    // microphone dropdown label/box will sit here:
+    sf::FloatRect dd_label({24.f, y - 16.f}, {512.f, 14.f});
+    sf::FloatRect dd_box  ({24.f, y},        {512.f, 34.f});
+    const float rowH = 28.f;
+    int dropRows = std::min<int>((int)devices.size(), 8);
+    sf::FloatRect dd_drop({dd_box.position.x, dd_box.position.y + dd_box.size.y + 2.f},
+                          {dd_box.size.x, dropRows * rowH});
+    y += gap;
 
-    sf::FloatRect btn_ok   ({20.f, 340.f}, {180.f, 40.f});
-    sf::FloatRect btn_cancel({320.f, 340.f}, {180.f, 40.f});
+    fields.push_back({ &v_formatter, makeBox(y), "post_formatter" }); y += gap;
+    fields.push_back({ &v_hot_rec,   makeBox(y), "keybinding_start_stop_recording" }); y += gap;
+    fields.push_back({ &v_hot_notes, makeBox(y), "keybinding_open_notes_window" }); y += gap;
 
+    // toggles
+    sf::FloatRect box_topmost({24.f, y},       {248.f, 28.f});
+    sf::FloatRect box_hideTB({288.f, y},       {248.f, 28.f});
+    y += 54.f;
+
+    // buttons
+    sf::FloatRect btn_ok    ({24.f,  y}, {200.f, 42.f});
+    sf::FloatRect btn_cancel({336.f, y}, {200.f, 42.f});
+
+    // focus & caret for text fields
     int focused = -1;
+    bool caretOn = true;
+    auto lastBlink = std::chrono::steady_clock::now();
 
     auto drawBox = [&](const sf::FloatRect& r, bool active) {
         sf::RectangleShape rect({r.size.x, r.size.y});
@@ -269,10 +310,24 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
         b.setOutlineColor(sf::Color(80,80,80));
         b.setOutlineThickness(1.f);
         win.draw(b);
-        labelText(s, r.position.x + 14.f, r.position.y + 10.f, 18);
+        labelText(s, r.position.x + 16.f, r.position.y + 10.f, 18);
+    };
+
+    auto validInputs = [&]()->bool {
+        // trivial validation: non-empty fields
+        if (v_save_path.empty() || v_voice_dir.empty() || v_formatter.empty())
+            return false;
+        return true;
     };
 
     while (win.isOpen()) {
+        // caret blink
+        auto now = std::chrono::steady_clock::now();
+        if (now - lastBlink > std::chrono::milliseconds(500)) {
+            caretOn = !caretOn;
+            lastBlink = now;
+        }
+
         while (const std::optional ev = win.pollEvent()) {
             if (ev->is<sf::Event::Closed>()) { win.close(); return false; }
 
@@ -281,29 +336,93 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
                 if (mb->button == sf::Mouse::Button::Left) {
                     sf::Vector2f mp = sf::Vector2f(sf::Mouse::getPosition(win));
 
-                    // focus text fields
-                    focused = -1;
-                    for (int i = 0; i < (int)fields.size(); ++i) {
-                        if (fields[i].box.contains(mp)) { focused = i; break; }
+                    // Dropdown interactions first
+                    if (dd_box.contains(mp)) {
+                        dropdownOpen = !dropdownOpen;
+                        focused = -1;
+                    } else if (dropdownOpen && dd_drop.contains(mp)) {
+                        int idx = (int)((mp.y - dd_drop.position.y) / rowH);
+                        idx = clamp(idx, 0, (int)devices.size() - 1);
+                        selectedDev = idx;
+                        v_input_dev = devices[selectedDev];
+                        dropdownOpen = false;
+                    } else {
+                        // Close dropdown if click elsewhere
+                        dropdownOpen = false;
+
+                        // Focus text fields
+                        focused = -1;
+                        for (int i = 0; i < (int)fields.size(); ++i) {
+                            if (fields[i].box.contains(mp)) { focused = i; break; }
+                        }
+
+                        // Toggles
+                        if (box_topmost.contains(mp)) v_topmost = !v_topmost;
+                        if (box_hideTB.contains(mp)) v_hide_tb = !v_hide_tb;
+
+                        // Buttons
+                        if (btn_ok.contains(mp)) {
+                            // Validate -> write -> apply
+                            if (!validInputs()) {
+                                std::cerr << "Invalid inputs; please fill all required fields.\n";
+                            } else {
+                                Settings::save_path = v_save_path;
+                                Settings::voice_notes_path = v_voice_dir;
+                                Settings::audio_input_device = v_input_dev;
+                                Settings::post_formatter = v_formatter;
+                                Settings::keybinding_start_stop_recording = v_hot_rec;
+                                Settings::keybinding_open_notes_window   = v_hot_notes;
+                                Settings::always_on_top   = v_topmost;
+                                Settings::hide_in_taskbar = v_hide_tb;
+
+                                if (!mgr.writeSettings(Settings())) {
+                                    std::cerr << "Failed writing settings file.\n";
+                                } else {
+                                    mgr.applySettings(); // re-read settings.txt
+                                }
+                                win.close();
+                                return true;
+                            }
+                        }
+                        if (btn_cancel.contains(mp)) { win.close(); return false; }
                     }
+                }
+            }
 
-                    // toggles
-                    if (box_topmost.contains(mp)) v_topmost = !v_topmost;
-                    if (box_hideTB.contains(mp)) v_hide_taskbar = !v_hide_taskbar;
+            if (ev->is<sf::Event::KeyPressed>()) {
+                auto k = ev->getIf<sf::Event::KeyPressed>();
+                if (k->scancode == sf::Keyboard::Scancode::Escape) { win.close(); return false; }
 
-                    // buttons
-                    if (btn_ok.contains(mp)) {
-                        // Push values into Settings statics
+                if (dropdownOpen) {
+                    if (k->scancode == sf::Keyboard::Scancode::Up) {
+                        selectedDev = std::max(0, selectedDev - 1);
+                        v_input_dev = devices[selectedDev];
+                    } else if (k->scancode == sf::Keyboard::Scancode::Down) {
+                        selectedDev = std::min((int)devices.size() - 1, selectedDev + 1);
+                        v_input_dev = devices[selectedDev];
+                    } else if (k->scancode == sf::Keyboard::Scancode::Enter) {
+                        dropdownOpen = false;
+                    }
+                    continue;
+                }
+
+                if (k->scancode == sf::Keyboard::Scancode::Tab) {
+                    if (!fields.empty()) focused = (focused + 1) % (int)fields.size();
+                } else if (k->scancode == sf::Keyboard::Scancode::Backspace && focused >= 0) {
+                    auto& s = *fields[focused].s;
+                    if (!s.empty()) s.pop_back();
+                } else if (k->scancode == sf::Keyboard::Scancode::Enter) {
+                    // Treat Enter like OK
+                    if (validInputs()) {
                         Settings::save_path = v_save_path;
                         Settings::voice_notes_path = v_voice_dir;
                         Settings::audio_input_device = v_input_dev;
                         Settings::post_formatter = v_formatter;
                         Settings::keybinding_start_stop_recording = v_hot_rec;
-                        Settings::keybinding_open_notes_window = v_hot_notes;
-                        Settings::always_on_top = v_topmost;
-                        Settings::hide_in_taskbar = v_hide_taskbar;
+                        Settings::keybinding_open_notes_window   = v_hot_notes;
+                        Settings::always_on_top   = v_topmost;
+                        Settings::hide_in_taskbar = v_hide_tb;
 
-                        // Write to disk and re-load
                         if (!mgr.writeSettings(Settings())) {
                             std::cerr << "Failed writing settings file.\n";
                         } else {
@@ -311,44 +430,13 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
                         }
                         win.close();
                         return true;
-                    }
-                    if (btn_cancel.contains(mp)) { win.close(); return false; }
-                }
-            }
-
-            if (ev->is<sf::Event::KeyPressed>()) {
-                auto k = ev->getIf<sf::Event::KeyPressed>();
-                if (k->scancode == sf::Keyboard::Scancode::Escape) { win.close(); return false; }
-                if (k->scancode == sf::Keyboard::Scancode::Tab) {
-                    if (fields.empty()) continue;
-                    focused = (focused + 1) % (int)fields.size();
-                }
-                if (k->scancode == sf::Keyboard::Scancode::Enter) {
-                    // OK via Enter
-                    Settings::save_path = v_save_path;
-                    Settings::voice_notes_path = v_voice_dir;
-                    Settings::audio_input_device = v_input_dev;
-                    Settings::post_formatter = v_formatter;
-                    Settings::keybinding_start_stop_recording = v_hot_rec;
-                    Settings::keybinding_open_notes_window = v_hot_notes;
-                    Settings::always_on_top = v_topmost;
-                    Settings::hide_in_taskbar = v_hide_taskbar;
-
-                    if (!mgr.writeSettings(Settings())) {
-                        std::cerr << "Failed writing settings file.\n";
                     } else {
-                        mgr.applySettings();
+                        std::cerr << "Invalid inputs; please fill all required fields.\n";
                     }
-                    win.close();
-                    return true;
-                }
-                if (k->scancode == sf::Keyboard::Scancode::Backspace && focused >= 0) {
-                    auto& s = *fields[focused].s;
-                    if (!s.empty()) s.pop_back();
                 }
             }
 
-            if (ev->is<sf::Event::TextEntered>() && focused >= 0) {
+            if (ev->is<sf::Event::TextEntered>() && focused >= 0 && !dropdownOpen) {
                 auto t = ev->getIf<sf::Event::TextEntered>();
                 uint32_t uc = t->unicode;
                 if (uc >= 32 && uc != 127) {
@@ -360,29 +448,98 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
         // ----- draw -----
         win.clear(bg);
 
-        // text boxes
+        // Draw text inputs
         for (int i = 0; i < (int)fields.size(); ++i) {
-            drawBox(fields[i].box, i == focused);
-            labelText(fields[i].label, fields[i].box.position.x + 6.f, fields[i].box.position.y - 16.f);
+            const bool isActive = (i == focused);
+            drawBox(fields[i].box, isActive);
+            labelText(fields[i].label, fields[i].box.position.x + 6.f, fields[i].box.position.y - 18.f);
             if (fontOk) {
                 sf::Text val(font, *fields[i].s, 16);
                 val.setFillColor(textCol);
-                val.setPosition({fields[i].box.position.x + 8.f, fields[i].box.position.y + 4.f});
+                val.setPosition({fields[i].box.position.x + 8.f, fields[i].box.position.y + 6.f});
                 win.draw(val);
+
+                // Blinking caret for active text box
+                if (isActive && caretOn) {
+                    auto b = val.getLocalBounds();
+                    sf::RectangleShape caret({1.5f, 18.f});
+                    caret.setFillColor(accent);
+                    caret.setPosition({val.getPosition().x + b.size.x + 2.f, val.getPosition().y + 2.f});
+                    win.draw(caret);
+                }
             }
         }
 
-        // toggles
+        // Mic dropdown (collapsed face)
+        labelText("audio_input_device", dd_label.position.x, dd_label.position.y);
+        drawBox(dd_box, false);
+        if (fontOk) {
+            // Ellipsize if needed
+            auto fits = [&](const std::string& s){
+                sf::Text tmp(font, s, 16);
+                return tmp.getLocalBounds().size.x <= dd_box.size.x - 16.f;
+            };
+            std::string shown = v_input_dev;
+            if (!fits(shown)) {
+                while (!shown.empty() && !fits(shown + "...")) shown.pop_back();
+                shown += "...";
+            }
+            sf::Text cur(font, shown, 16);
+            cur.setFillColor(textCol);
+            cur.setPosition({dd_box.position.x + 8.f, dd_box.position.y + 6.f});
+            win.draw(cur);
+        }
+        // little caret indicator
+        sf::RectangleShape tri({10.f, 2.f});
+        tri.setFillColor(textCol);
+        tri.setPosition({dd_box.position.x + dd_box.size.x - 16.f, dd_box.position.y + dd_box.size.y/2.f - 1.f});
+        win.draw(tri);
+
+        // Toggles
         drawBox(box_topmost, false);
         labelText(std::string("always_on_top: ") + (v_topmost ? "true" : "false"),
                   box_topmost.position.x + 8.f, box_topmost.position.y + 4.f, 16);
         drawBox(box_hideTB, false);
-        labelText(std::string("hide_in_taskbar: ") + (v_hide_taskbar ? "true" : "false"),
+        labelText(std::string("hide_in_taskbar: ") + (v_hide_tb ? "true" : "false"),
                   box_hideTB.position.x + 8.f, box_hideTB.position.y + 4.f, 16);
 
-        // buttons
+        // Buttons
         drawBtn(btn_ok, "OK");
         drawBtn(btn_cancel, "Cancel");
+
+        // --- Draw dropdown LAST so it overlays everything ---
+        if (dropdownOpen) {
+            // dim background a bit
+            sf::RectangleShape dim({(float)win.getSize().x, (float)win.getSize().y});
+            dim.setPosition({0.f, 0.f});
+            dim.setFillColor(sf::Color(0, 0, 0, 40));
+            win.draw(dim);
+
+            sf::RectangleShape drop({dd_drop.size.x, dd_drop.size.y});
+            drop.setPosition(dd_drop.position);
+            drop.setFillColor(panel);
+            drop.setOutlineThickness(1.f);
+            drop.setOutlineColor(sf::Color(70,70,70));
+            win.draw(drop);
+
+            for (int i = 0; i < dropRows; ++i) {
+                int idx = i;
+                sf::FloatRect row({dd_drop.position.x, dd_drop.position.y + i * rowH},
+                                  {dd_drop.size.x, rowH});
+                if (idx == selectedDev) {
+                    sf::RectangleShape hi({row.size.x, row.size.y});
+                    hi.setPosition(row.position);
+                    hi.setFillColor(sf::Color(55,55,55));
+                    win.draw(hi);
+                }
+                if (fontOk) {
+                    sf::Text t(font, devices[idx], 15);
+                    t.setFillColor(textCol);
+                    t.setPosition({row.position.x + 8.f, row.position.y + 5.f});
+                    win.draw(t);
+                }
+            }
+        }
 
         win.display();
     }
@@ -398,11 +555,6 @@ int main()
     win.setFramerateLimit(144);
     setAlwaysOnTop(win, true);
     win.setPosition(rightEdgeStart(HUB_W, HUB_H));
-
-    // Settings
-    SettingsManager settingsMgr("settings.txt");
-    settingsMgr.applySettings();                     // load on start
-    setAlwaysOnTop(win, Settings::always_on_top);    // honor setting immediately
 
     // Dragging by header
     bool dragging = false;
@@ -437,41 +589,29 @@ int main()
 
     // Font
     sf::Font font;
-    bool fontOk = font.openFromFile(FONT_PATH); // SFML 3: openFromFile
+    font.openFromFile(FONT_PATH); // SFML 3: openFromFile
 
     // Text UI
     sf::Text titleText(font, "Voice Notes", 16);
     titleText.setFillColor(textCol);
     titleText.setPosition(sf::Vector2f(10.f, 8.f));
 
-    // Buttons (+) and (×) and gear & mic (strings may change -> we'll re-layout every frame)
-    sf::Text plus(font, "+", 20);         plus.setFillColor(textCol);
-    sf::Text closeX(font, "x", 18);       closeX.setFillColor(textCol);
-    sf::Text gear(font, u8"\u2699", 20);  gear.setFillColor(textCol);
-    sf::Text microphone(font, "mic", 20); microphone.setFillColor(textCol);
+    // Buttons (+) and (×)
+    sf::Text plus(font, "+", 20);
+    plus.setFillColor(textCol);
+    plus.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 58.f, 6.f));
+    sf::FloatRect plusBounds = plus.getGlobalBounds();
 
-    // Bounds updated each frame
-    sf::FloatRect plusBounds, closeBounds, gearBounds, microphoneBounds;
+    sf::Text closeX(font, "x", 18);
+    closeX.setFillColor(textCol);
+    closeX.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 26.f, 6.f));
+    sf::FloatRect closeBounds = closeX.getGlobalBounds();
 
-    auto layoutHeader = [&](){
-        // Right-aligned layout helper
-        auto placeRight = [&](sf::Text& t, float& rightX, float pad = 8.f) {
-            auto b = t.getLocalBounds();
-            rightX -= (b.size.x + pad);
-            t.setPosition({rightX, 6.f});
-        };
-
-        float rightX = static_cast<float>(HUB_W) - 6.f; // start near the right edge
-        placeRight(closeX, rightX, 10.f);
-        placeRight(plus,   rightX, 14.f);
-        placeRight(gear,   rightX, 14.f);
-        placeRight(microphone, rightX, 14.f);
-
-        closeBounds      = closeX.getGlobalBounds();
-        plusBounds       = plus.getGlobalBounds();
-        gearBounds       = gear.getGlobalBounds();
-        microphoneBounds = microphone.getGlobalBounds();
-    };
+    // Record button
+    sf::Text microphone(font, "mic", 20);
+    microphone.setFillColor(textCol);
+    microphone.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 110.f, 6.f));
+    sf::FloatRect microphoneBounds = microphone.getGlobalBounds();
 
     // Notes
     std::vector<Note> notes = loadNotes();
@@ -516,9 +656,6 @@ int main()
 
     while (win.isOpen())
     {
-        // Ensure header layout & hit boxes reflect any string changes (e.g., mic <-> stop)
-        layoutHeader();
-
         while (const std::optional ev = win.pollEvent())
         {
             if (ev->is<sf::Event::Closed>()) win.close();
@@ -594,28 +731,16 @@ int main()
                             selected = static_cast<int>(notes.size()) - 1;
                             editorScroll = 0.f;
                             requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
-                        } else if (gearBounds.contains(mp)) {
-                            // Temporarily drop top-most so settings can appear in front
-                            bool prevTop = Settings::always_on_top;
-                            setAlwaysOnTop(win, false);
-                            if (openSettingsWindow(win, settingsMgr)) {
-                                // re-apply settings that affect window behavior
-                                setAlwaysOnTop(win, Settings::always_on_top);
-                            } else {
-                                // restore previous state on cancel/close
-                                setAlwaysOnTop(win, prevTop);
-                            }
                         } else if(microphoneBounds.contains(mp)) {
                             if(microphone.getString() == "mic") {
                                 startRecordAudioFromMicrophone();
                                 microphone.setString("stop");
+                                win.draw(microphone);   
                             } else {
                                 stopRecordAudioFromMicrophone();
-                                sendAudioFileToWhisper();
                                 microphone.setString("mic");
+                                win.draw(microphone);
                             }
-                            // Re-layout since width changed
-                            layoutHeader();
                         } else {
                             dragging = true;
                             sf::Vector2i mouseScreen = sf::Mouse::getPosition();
@@ -674,11 +799,10 @@ int main()
 
         // Header
         win.draw(headerRect);
-        if (fontOk) {
+        if (font.getInfo().family.size()) {
             win.draw(titleText);
             win.draw(plus);
             win.draw(closeX);
-            win.draw(gear);
             win.draw(microphone);
         }
 
@@ -695,7 +819,7 @@ int main()
                 rowBg.setFillColor(static_cast<int>(i) == selected ? sel : panel);
                 win.draw(rowBg);
 
-                if (fontOk) {
+                if (font.getInfo().family.size()) {
                     std::string ttl = firstLine(notes[i].text);
                     if (ttl.empty()) ttl = "(empty)";
                     if (ttl.size() > 20) ttl = ttl.substr(0, 20) + "...";
@@ -721,7 +845,7 @@ int main()
         win.draw(editorRect);
         win.setView(editorView);
         {
-            if (fontOk) {
+            if (font.getInfo().family.size()) {
                 editorText.setString(notes[selected].text);
                 editorText.setPosition(sf::Vector2f(8.f, 8.f - editorScroll));
                 win.draw(editorText);

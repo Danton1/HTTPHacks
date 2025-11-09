@@ -2,7 +2,6 @@
 #include <string>
 #include <iostream>
 #include <fstream>
-#include "settings.h"
 #include <iostream>
 #include <fstream>
 
@@ -63,17 +62,27 @@ bool SettingsManager::readSettings(std::string path){
         std::cerr << "Settings path is empty." << std::endl;
         return false;
     }
+
+    // Check if the file exists
+    std::ifstream settingsFile(path);
+    if (!settingsFile.is_open()) {
+        std::cerr << "Settings file not found. Creating with default values." << std::endl;
+
+        // Create the file with default settings
+        if (!writeSettings(Settings())) {
+            std::cerr << "Failed to create settings file with default values." << std::endl;
+            return false; // Failed to create file
+        }
+        return true; // File created successfully
+    }
+
+    // File exists, parse the settings
+    std::string line;
+
     std::string requiredKeys[] = {"save_path", "voice_notes_path", "audio_input_device", "always_on_top", "hide_in_taskbar",
                                   "post_formatter", "keybinding_start_stop_recording", "keybinding_open_notes_window"};
 
-    // Open and parse the settings txt file
-    std::ifstream settingsFile;
-    settingsFile.open(path);
-    if (!settingsFile.is_open()) {
-        std::cerr << "Failed to open settings file: " << path << std::endl;
-        return false;
-    }
-    std::string line;
+    // Read line by line
     while (std::getline(settingsFile, line)) {
         for (const auto& key : requiredKeys) {
             if (line.find(key + "=") == 0) {
