@@ -27,6 +27,7 @@
 #include "settings.h"
 #include <iostream>
 #include <SFML/Audio/SoundRecorder.hpp>
+#include <filesystem>
 
 #if defined(_WIN32)
   #ifndef NOMINMAX
@@ -83,8 +84,11 @@ static sf::Vector2i rightEdgeStart(unsigned, unsigned, int = 16, int = 64) { ret
 
 // ---------- Data ----------
 struct Note {
-    std::string text;    // first line acts as title; rest is body
-    std::string created; // HH:MM or date-like string for list
+    std::string base;      // e.g., "note_2025-11-09_18-12-30"
+    std::string txtPath;   // full path to .txt
+    std::string wavPath;   // full path to .wav (may not exist)
+    std::string text;      // full text
+    std::string created;   // derived from filename or file time
 };
 
 static std::string nowShort()
@@ -102,78 +106,134 @@ static std::string nowShort()
     return oss.str();
 }
 
-// naive JSON escape for quotes/newlines
-static std::string jsonEscape(const std::string& s)
-{
-    std::ostringstream o;
-    for (char c : s) {
-        switch (c) {
-            case '\"': o << "\\\""; break;
-            case '\\': o << "\\\\"; break;
-            case '\n': o << "\\n";  break;
-            case '\r':             break;
-            case '\t': o << "\\t";  break;
-            default:   o << c;      break;
-        }
-    }
-    return o.str();
+// Build a normalized folder path with trailing slash
+static std::string normalizedVoiceDir() {
+    std::string dir = Settings::voice_notes_path;
+    if (dir.empty()) dir = "voice_notes/"; // fallback
+    if (dir.back() != '/' && dir.back() != '\\') dir.push_back('/');
+    return dir;
 }
 
-static void saveNotes(const std::vector<Note>& notes)
-{
-    std::ofstream f(Settings::save_path, std::ios::binary);
-    if (!f) return;
-    f << "{ \"notes\": [";
-    for (size_t i = 0; i < notes.size(); ++i) {
-        if (i) f << ",";
-        f << "{\"text\":\""   << jsonEscape(notes[i].text)
-          << "\",\"created\":\"" << jsonEscape(notes[i].created) << "\"}";
-    }
-    f << "] }";
-}
-
-static std::vector<Note> loadNotes()
-{
-    std::ifstream f(Settings::save_path, std::ios::binary);
+// Read a whole file into string (UTF-8 ok)
+static std::string slurp(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
     if (!f) return {};
-    std::string s((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return std::string((std::istreambuf_iterator<char>(f)),
+                        std::istreambuf_iterator<char>());
+}
+
+static bool spit(const std::string& path, const std::string& data) {
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(data.data(), (std::streamsize)data.size());
+    return true;
+}
+
+// Scan Settings::voice_notes_path for note_*.txt/ .wav and produce list
+static std::vector<Note> scanVoiceNotes() {
     std::vector<Note> out;
-    // ultra-lightweight parse: look for "text":"...","created":"..."
-    size_t pos = 0;
-    while (true) {
-        auto t1 = s.find("\"text\":\"", pos);
-        if (t1 == std::string::npos) break;
-        t1 += 8;
-        std::string text;
-        for (size_t i = t1; i < s.size(); ++i) {
-            if (s[i] == '\\') { // escape
-                if (i + 1 < s.size()) {
-                    char n = s[++i];
-                    if (n == 'n') text.push_back('\n');
-                    else if (n == 't') text.push_back('\t');
-                    else text.push_back(n);
-                }
-            } else if (s[i] == '\"') {
-                pos = i + 1;
-                break;
-            } else text.push_back(s[i]);
+    std::string dir = normalizedVoiceDir();
+
+    std::unordered_map<std::string, Note> map; // base -> Note
+
+    for (auto& p : std::filesystem::directory_iterator(dir)) {
+        if (!p.is_regular_file()) continue;
+        auto path = p.path().string();
+        auto ext  = p.path().extension().string();
+        auto stem = p.path().stem().string();   // base name without extension
+
+        if (ext == ".txt" || ext == ".TXT") {
+            Note& n = map[stem];
+            n.base    = stem;
+            n.txtPath = path;
+        } else if (ext == ".wav" || ext == ".WAV") {
+            Note& n = map[stem];
+            n.base    = stem;
+            n.wavPath = path;
         }
-        auto c1 = s.find("\"created\":\"", pos);
-        if (c1 == std::string::npos) break;
-        c1 += 11;
-        std::string created;
-        for (size_t i = c1; i < s.size(); ++i) {
-            if (s[i] == '\\') {
-                if (i + 1 < s.size()) created.push_back(s[++i]);
-            } else if (s[i] == '\"') {
-                pos = i + 1;
-                break;
-            } else created.push_back(s[i]);
-        }
-        out.push_back({text, created});
     }
+
+    // load text + created
+    for (auto& kv : map) {
+        Note n = kv.second;
+        if (!n.txtPath.empty()) {
+            n.text = slurp(n.txtPath);
+        }
+        // derive "created" from filename if matches note_YYYY-mm-dd_HH-MM-SS
+        // else use file write time or blank
+        n.created = nowShort();
+        try {
+            auto ftime = std::filesystem::last_write_time(n.txtPath.empty() ? (n.wavPath.empty() ? "" : n.wavPath) : n.txtPath);
+            if (!n.txtPath.empty() || !n.wavPath.empty()) {
+                auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                    ftime - std::filesystem::file_time_type::clock::now()
+                    + std::chrono::system_clock::now()
+                );
+                std::time_t tt = std::chrono::system_clock::to_time_t(sctp);
+                std::tm tm{};
+            #if defined(_WIN32)
+                localtime_s(&tm, &tt);
+            #else
+                localtime_r(&tt, &tm);
+            #endif
+                char buf[6];
+                std::strftime(buf, sizeof(buf), "%H:%M", &tm);
+                n.created = buf;
+            }
+        } catch (...) {}
+
+        out.push_back(std::move(n));
+    }
+
+    // sort newest-first by base name (timestamp in name) or by path time
+    std::sort(out.begin(), out.end(), [](const Note& a, const Note& b){
+        return a.base > b.base;
+    });
+
     return out;
 }
+
+// Save current editor text back to its file
+static bool saveNoteText(const Note& n) {
+    if (n.txtPath.empty()) return false;
+    return spit(n.txtPath, n.text);
+}
+
+static std::string makeTimestampBase() {
+    using namespace std::chrono;
+    auto t = system_clock::to_time_t(system_clock::now());
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "note_%Y-%m-%d_%H-%M-%S", &tm);
+    return std::string(buf);
+}
+
+// Create a text-only note file on disk and return the Note
+static Note createNewTextNote() {
+    std::string dir  = normalizedVoiceDir();
+    std::filesystem::create_directories(dir);
+
+    std::string base = makeTimestampBase();
+    std::string txt  = dir + base + ".txt";
+    std::string wav  = dir + base + ".wav"; // may or may not exist later
+
+    std::string initial = "New note\n";
+    spit(txt, initial);
+
+    Note n;
+    n.base    = base;
+    n.txtPath = txt;
+    n.wavPath = wav;
+    n.text    = initial;
+    n.created = nowShort();
+    return n;
+}
+
 
 // utility: split first line
 static std::string firstLine(const std::string& s)
@@ -620,13 +680,46 @@ int main()
 
     // Settings gear (⚙️)
     sf::Text gear(font, u8"\u2699", 20);
+    // Play/Pause button for selected note
+    sf::Text playBtn(font, "▶", 18);
+    playBtn.setFillColor(textCol);
+    playBtn.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 140.f, 7.f));
+    sf::FloatRect playBounds = playBtn.getGlobalBounds();
+
+    // Simple audio player state
+    sf::SoundBuffer playBuffer;
+    sf::Sound       player;
+    bool            isPlaying = false;
+
+    auto playSelected = [&](){
+        if (selected < 0 || selected >= (int)notes.size()) return;
+        const auto& n = notes[selected];
+        if (n.wavPath.empty()) return;
+        if (!std::filesystem::exists(n.wavPath)) return;
+
+        if (isPlaying) {
+            player.stop();
+            isPlaying = false;
+            playBtn.setString("▶");
+            return;
+        }
+        if (!playBuffer.loadFromFile(n.wavPath)) {
+            std::cerr << "Failed to load " << n.wavPath << "\n";
+            return;
+        }
+        player.setBuffer(playBuffer);
+        player.play();
+        isPlaying = true;
+        playBtn.setString("⏸");
+    };
+
     gear.setFillColor(textCol);
     gear.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 92.f, 6.f)); // between mic and plus
     sf::FloatRect gearBounds = gear.getGlobalBounds();
 
 
     // Notes
-    std::vector<Note> notes = loadNotes();
+    std::vector<Note> notes = scanVoiceNotes();
     if (notes.empty()) {
         notes.push_back({std::string("Take a note...\n"), nowShort()});
     }
@@ -661,7 +754,9 @@ int main()
     auto maybeAutosave = [&](){
         auto now = std::chrono::steady_clock::now();
         if (now - requestSaveAt > std::chrono::seconds(3)) {
-            saveNotes(notes);
+            if (selected >= 0 && selected < (int)notes.size()) {
+                saveNoteText(notes[selected]);
+            }
             requestSaveAt = now;
         }
     };
@@ -679,16 +774,20 @@ int main()
                 }
                 // Ctrl+N: new note
                 if (k->control && k->scancode == sf::Keyboard::Scancode::N) {
-                    notes.push_back({std::string("New note\n"), nowShort()});
-                    selected = static_cast<int>(notes.size()) - 1;
+                    auto n = createNewTextNote();
+                    notes.push_back(std::move(n));
+                    selected = (int)notes.size() - 1;
                     editorScroll = 0.f;
                     requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
                 }
-                // Ctrl+S: save
+                // Ctrl+S: save selected note to its .txt
                 if (k->control && k->scancode == sf::Keyboard::Scancode::S) {
-                    saveNotes(notes);
+                    if (selected >= 0 && selected < (int)notes.size()) {
+                        saveNoteText(notes[selected]);
+                    }
                     requestSaveAt = std::chrono::steady_clock::now();
                 }
+
                 // Backspace handling (editor only)
                 if (k->scancode == sf::Keyboard::Scancode::Backspace) {
                     if (!notes[selected].text.empty()) {
@@ -739,8 +838,9 @@ int main()
                     if (headerRect.getGlobalBounds().contains(mp)) {
                         if (closeBounds.contains(mp)) { win.close(); }
                         else if (plusBounds.contains(mp)) {
-                            notes.push_back({std::string("New note\n"), nowShort()});
-                            selected = static_cast<int>(notes.size()) - 1;
+                            auto n = createNewTextNote();
+                            notes.push_back(std::move(n));
+                            selected = (int)notes.size() - 1;
                             editorScroll = 0.f;
                             requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
                         } else if (gearBounds.contains(mp)) {
@@ -753,6 +853,8 @@ int main()
                                 // Even on cancel, restore to current setting
                                 setAlwaysOnTop(win, Settings::always_on_top);
                             }
+                        } else if (playBounds.contains(mp)) {
+                            playSelected();
                         } else if(microphoneBounds.contains(mp)) {
                             if(microphone.getString() == "mic") {
                                 startRecordAudioFromMicrophone();
@@ -760,6 +862,15 @@ int main()
                                 win.draw(microphone);   
                             } else {
                                 stopRecordAudioFromMicrophone();
+
+                                // Refresh list and select newest note (assumes filename timestamp ordering)
+                                auto beforeCount = notes.size();
+                                notes = scanVoiceNotes();
+                                if (!notes.empty()) {
+                                    selected = 0; // because we sort newest-first by base
+                                    // Optionally, find exact newest by comparing txt/wav times if you prefer
+                                }
+
                                 microphone.setString("mic");
                                 win.draw(microphone);
                             }
@@ -776,8 +887,19 @@ int main()
                         int idx = static_cast<int>(std::floor(y / itemH));
                         if (idx >= 0 && idx < static_cast<int>(notes.size())) {
                             selected = idx;
+                            // refresh text from disk
+                            if (!notes[selected].txtPath.empty()) {
+                                notes[selected].text = slurp(notes[selected].txtPath);
+                            }
                             editorScroll = 0.f;
+                            // stop playback if switching notes
+                            if (isPlaying) {
+                                player.stop();
+                                isPlaying = false;
+                                playBtn.setString("▶");
+                            }
                         }
+
                     }
                 }
             }
@@ -825,6 +947,7 @@ int main()
             win.draw(titleText);
             win.draw(plus);
             win.draw(closeX);
+            win.draw(playBtn);
             win.draw(gear);
             win.draw(microphone);
         }
@@ -888,6 +1011,12 @@ int main()
             }
         }
         win.setView(win.getDefaultView());
+
+        // If finished playing, reset icon
+        if (isPlaying && player.getStatus() != sf::Sound::Playing) {
+            isPlaying = false;
+            playBtn.setString("▶");
+        }
 
         win.display();
     }
