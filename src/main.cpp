@@ -869,11 +869,6 @@ int main()
     titleText.setFillColor(textCol);
     titleText.setPosition(sf::Vector2f(10.f, 8.f));
 
-    // Buttons (+) and (×)
-    sf::Text plus(font, "+", 20);
-    plus.setFillColor(textCol);
-    plus.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 58.f, 6.f));
-    sf::FloatRect plusBounds = plus.getGlobalBounds();
 
     sf::Text closeX(font, "x", 18);
     closeX.setFillColor(textCol);
@@ -915,6 +910,16 @@ int main()
     const float X_MIC   = static_cast<float>(HUB_W) - 160.0f;
     const float X_GEAR  = static_cast<float>(HUB_W) - 125.0f;
 
+    // Add icon
+    sf::Texture texAdd;
+    if (!texAdd.loadFromFile("assets/add.png")) std::cerr << "Missing assets/add.png\n";
+    texAdd.setSmooth(true);
+
+    sf::Sprite spAdd(texAdd);
+    fitIcon(spAdd, ICON_PX);
+    spAdd.setPosition({ static_cast<float>(HUB_W) - 88.f, ICON_Y });
+    sf::FloatRect addBounds = spAdd.getGlobalBounds();
+
     sf::Sprite spPlay(texPlay);
     fitIcon(spPlay, ICON_PX);
     spPlay.setPosition({ X_PLAY, ICON_Y });
@@ -926,7 +931,7 @@ int main()
     sf::FloatRect micBounds = spMic.getGlobalBounds();
 
     sf::Sprite spGear(texGear);
-    fitIcon(spGear, ICON_PX);
+    fitIcon(spGear, ICON_PX+1.f); // gear looks smaller, give a bit more size
     spGear.setPosition({ X_GEAR, ICON_Y });
     sf::FloatRect gearBounds = spGear.getGlobalBounds();
 
@@ -1110,13 +1115,12 @@ int main()
                     // Header: drag or buttons
                     if (headerRect.getGlobalBounds().contains(mp)) {
                         if (closeBounds.contains(mp)) { win.close(); }
-                        else if (plusBounds.contains(mp)) {
-                            auto n = createNewTextNote();
-                            notes.push_back(std::move(n));
-                            selected = (int)notes.size() - 1;
+                        else if (addBounds.contains(mp)) {
+                            notes.push_back({std::string("New note\n"), nowShort()});
+                            selected = static_cast<int>(notes.size()) - 1;
                             editorScroll = 0.f;
-                            requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
-                        }     else if (gearBounds.contains(mp)) {
+                            requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);                        
+                        } else if (gearBounds.contains(mp)) {
                             // Temporarily drop top-most so the dialog isn’t hidden behind the main window
                             setAlwaysOnTop(win, false);
                             bool changed = openSettingsWindow(win, settingsMgr);
@@ -1251,6 +1255,8 @@ int main()
         if (gh.trigRecord.exchange(false)) {
             toggleRecording();
         }
+        #endif
+        #if defined(_WIN32)
         if (gh.trigFocus.exchange(false)) {
             // Bring window to front
             setAlwaysOnTop(win, true); // ensure top-most (your setting may keep it)
@@ -1275,11 +1281,11 @@ int main()
         win.draw(spPlay);
         win.draw(spGear);
         win.draw(spMic);
+        win.draw(spAdd);
 
         // text only if font is available
         if (font.getInfo().family.size()) {
             win.draw(titleText);
-            win.draw(plus);
             win.draw(closeX);
         }
 
