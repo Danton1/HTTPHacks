@@ -1,40 +1,70 @@
-<U>Project Overview</U><br>
+# Voice Notes
+
+## Project Overview
+Take notes easily by recording your voice and automatically generate notes! 
+
 C++ project to read audio streams and generate notes.
 
-Uses SFML and CMake to build audio stream API.
+Uses SFML graphical and audio libraies api for frontend development and microphone capture.
+Implements an open source port of OpenAI's whisper model using ggml for voice to text generation in C++. 
+
+## Build & Run Instructions
+
+### 1. Clone the Repository
+
+    git clone https://github.com/Danton1/HTTPHacks.git
+    cd HTTPHacks
 
 ---
-<U>Build and Run the application</U>
 
-Configure CMake: 
-```
-cmake -B build
-```
+### 2. Build the Whisper Model
 
-Build with CMake:
-```
-cmake --build build
-```
+Navigate to the model directory:
 
-The executable will be in `build\bin\Debug`
-Run to execute program:
-```
-.\build\bin\Debug\main.exe
-```
+    cd whisper/models
 
-To Build and Run the whisper model:
-Inside the root of whisper.cpp
-```
-cd whisper.cpp
-"./models/download-ggml-model.exe" base.en
-cmake -B build
-cmake --build build -j --config Release
+Download and generate the model:
 
-// Testing
-"./build/bin/Release/whisper-cli.exe" -f "samples/jfk.wav"
-```
+- On **macOS / Linux**:
+
+      sh download-ggml-model.sh base.en
+
+- On **Windows (PowerShell / CMD)**:
+
+      download-ggml-model.cmd base.en
+
+After the script finishes, you should see a model file such as  
+`ggml-base.en.bin` inside the `whisper/models` folder.
+
 ---
 
-<U>Project Members</U><br>
-Danton Soares<br>
-Conrad Christian
+### 3. Configure and Build the Application
+
+Return to the project root:
+
+    cd ../..
+
+Run CMake to configure and build (https://cmake.org/download/):
+
+    cmake -B build
+    cmake --build build
+
+---
+
+### 4. Run the Program
+
+Navigate to the executable:
+
+    cd build/bin/Debug
+
+Run:
+
+    ./main.exe
+
+---
+
+
+## Project Members
+
+- **Danton Soares**  
+- **Conrad Christian**
