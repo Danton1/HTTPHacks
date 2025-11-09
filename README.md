@@ -22,9 +22,15 @@ Run to execute program:
 .\build\bin\Debug\main.exe
 ```
 
-To run the whisper model:
+To Build and Run the whisper model:
 Inside the root of whisper.cpp
 ```
+cd whisper.cpp
+"./models/download-ggml-model.exe" base.en
+cmake -B build
+cmake --build build -j --config Release
+
+// Testing
 "./build/bin/Release/whisper-cli.exe" -f "samples/jfk.wav"
 ```
 ---
