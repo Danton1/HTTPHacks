@@ -74,6 +74,8 @@ bool SettingsManager::readSettings(std::string path){
             return false; // Failed to create file
         }
         return true; // File created successfully
+    } else {
+        std::cout << "Settings file found. Loading settings." << std::endl;
     }
 
     // File exists, parse the settings
