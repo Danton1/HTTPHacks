@@ -7,35 +7,24 @@
 
 // Settings class implementation
 // Define static members
-std::string Settings::save_path;
 std::string Settings::voice_notes_path;
 std::string Settings::audio_input_device;
 bool Settings::always_on_top;
 bool Settings::hide_in_taskbar;
-std::string Settings::post_formatter;
 std::string Settings::keybinding_start_stop_recording;
 std::string Settings::keybinding_open_notes_window;
 
 // Constructor implementation
 Settings::Settings() {
-    save_path = "./build/bin/Debug/notes.json";
-    voice_notes_path = "voice_notes/";
-    audio_input_device = "default";
-    always_on_top = true;
-    hide_in_taskbar = false;
-    post_formatter = "{text}";
-    keybinding_start_stop_recording = "Ctrl+R";
-    keybinding_open_notes_window = "Ctrl+N";
+    reset_settings();
 }
 
 // reset_settings implementation
 void Settings::reset_settings() {
-    save_path = "./build/bin/Debug/notes.json";
     voice_notes_path = "voice_notes/";
     audio_input_device = "default";
     always_on_top = true;
     hide_in_taskbar = false;
-    post_formatter = "{text}";
     keybinding_start_stop_recording = "Ctrl+R";
     keybinding_open_notes_window = "Ctrl+N";
 }
@@ -81,17 +70,15 @@ bool SettingsManager::readSettings(std::string path){
     // File exists, parse the settings
     std::string line;
 
-    std::string requiredKeys[] = {"save_path", "voice_notes_path", "audio_input_device", "always_on_top", "hide_in_taskbar",
-                                  "post_formatter", "keybinding_start_stop_recording", "keybinding_open_notes_window"};
+    std::string requiredKeys[] = {"voice_notes_path", "audio_input_device", "always_on_top", "hide_in_taskbar",
+                                  "keybinding_start_stop_recording", "keybinding_open_notes_window"};
 
     // Read line by line
     while (std::getline(settingsFile, line)) {
         for (const auto& key : requiredKeys) {
             if (line.find(key + "=") == 0) {
                 std::string value = line.substr(key.length() + 1);
-                if (key == "save_path") {
-                    Settings::save_path = value;
-                } else if (key == "voice_notes_path") {
+                if (key == "voice_notes_path") {
                     Settings::voice_notes_path = value;
                 } else if (key == "audio_input_device") {
                     Settings::audio_input_device = value;
@@ -99,8 +86,6 @@ bool SettingsManager::readSettings(std::string path){
                     Settings::always_on_top = (value == "true");
                 } else if (key == "hide_in_taskbar") {
                     Settings::hide_in_taskbar = (value == "true");
-                } else if (key == "post_formatter") {
-                    Settings::post_formatter = value;
                 } else if (key == "keybinding_start_stop_recording") {
                     Settings::keybinding_start_stop_recording = value;
                 } else if (key == "keybinding_open_notes_window") {
@@ -124,12 +109,10 @@ bool SettingsManager::writeSettings(const Settings& s) {
         return false;
     }
     // Persist in the same key=value format that readSettings() parses
-    out << "save_path=" << Settings::save_path << "\n";
     out << "voice_notes_path=" << Settings::voice_notes_path << "\n";
     out << "audio_input_device=" << Settings::audio_input_device << "\n";
     out << "always_on_top=" << (Settings::always_on_top ? "true" : "false") << "\n";
     out << "hide_in_taskbar=" << (Settings::hide_in_taskbar ? "true" : "false") << "\n";
-    out << "post_formatter=" << Settings::post_formatter << "\n";
     out << "keybinding_start_stop_recording=" << Settings::keybinding_start_stop_recording << "\n";
     out << "keybinding_open_notes_window=" << Settings::keybinding_open_notes_window << "\n";
     return true;
