@@ -67,10 +67,13 @@ int stopRecordAudioFromMicrophone() {
 
     // Save .wav
     string baseName = "note_" + getTimestamp();
-    string audioPath = "voice_notes/" + baseName + ".wav";
-    string textPath = "voice_notes/" + baseName + ".txt";
+    std::string dir = Settings::voice_notes_path;
+    if (!dir.empty() && (dir.back() != '/' && dir.back() != '\\')) dir.push_back('/');
+    std::string audioPath = dir + baseName + ".wav";
+    std::string textPath  = dir + baseName + ".txt";
 
-    filesystem::create_directories("voice_notes");
+
+    std::filesystem::create_directories(Settings::voice_notes_path);
     if (!buffer.saveToFile(audioPath)) {
         cerr << "Failed to save audio.\n";
         return 1;
