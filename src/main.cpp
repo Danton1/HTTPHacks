@@ -303,9 +303,7 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
     bool fontOk = font.openFromFile(FONT_PATH);
 
     // ------- Load existing values into edit buffers -------
-    std::string v_save_path  = Settings::save_path;
     std::string v_voice_dir  = Settings::voice_notes_path;
-    std::string v_formatter  = Settings::post_formatter;
     std::string v_hot_rec    = Settings::keybinding_start_stop_recording;
     std::string v_hot_notes  = Settings::keybinding_open_notes_window;
     bool        v_topmost    = Settings::always_on_top;
@@ -330,17 +328,22 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
     bool dropdownOpen = false;
 
     // ------- Text fields layout (added spacing) -------
-    struct Field { std::string* s; sf::FloatRect box; const char* label; };
+    struct Field {
+        std::string* s;
+        sf::FloatRect box;
+        const char* display;   // user-facing label
+    };
+    
     std::vector<Field> fields;
-
     auto makeBox = [&](float y) { return sf::FloatRect({24.f, y}, {512.f, 34.f}); };
-
+    
     float y = 24.f;
-    const float gap = 48.f; // extra spacing between lines
-
-    fields.push_back({ &v_save_path, makeBox(y), "save_path" }); y += gap;
-    fields.push_back({ &v_voice_dir, makeBox(y), "voice_notes_path" }); y += gap;
-    // microphone dropdown label/box will sit here:
+    const float gap = 64.f; // a bit more spacing
+    
+    // Text fields
+    fields.push_back({ &v_voice_dir, makeBox(y), "Voice Notes directory" }); y += gap;
+    
+    // Mic dropdown row (rendered separately)
     sf::FloatRect dd_label({24.f, y - 16.f}, {512.f, 14.f});
     sf::FloatRect dd_box  ({24.f, y},        {512.f, 34.f});
     const float rowH = 28.f;
@@ -348,19 +351,20 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
     sf::FloatRect dd_drop({dd_box.position.x, dd_box.position.y + dd_box.size.y + 2.f},
                           {dd_box.size.x, dropRows * rowH});
     y += gap;
-
-    fields.push_back({ &v_formatter, makeBox(y), "post_formatter" }); y += gap;
-    fields.push_back({ &v_hot_rec,   makeBox(y), "keybinding_start_stop_recording" }); y += gap;
-    fields.push_back({ &v_hot_notes, makeBox(y), "keybinding_open_notes_window" }); y += gap;
-
-    // toggles
+    
+    // Shortcuts
+    fields.push_back({ &v_hot_rec,   makeBox(y), "Shortcut: Start/Stop Recording" }); y += gap;
+    fields.push_back({ &v_hot_notes, makeBox(y), "Shortcut: Open Notes Window"    }); y += gap;
+    
+    // Toggles
     sf::FloatRect box_topmost({24.f, y},       {248.f, 28.f});
     sf::FloatRect box_hideTB({288.f, y},       {248.f, 28.f});
     y += 54.f;
-
-    // buttons
+    
+    // Buttons
     sf::FloatRect btn_ok    ({24.f,  y}, {200.f, 42.f});
     sf::FloatRect btn_cancel({336.f, y}, {200.f, 42.f});
+    
 
     // focus & caret for text fields
     int focused = -1;
@@ -376,7 +380,7 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
         win.draw(rect);
     };
 
-    auto labelText = [&](const std::string& s, float x, float y, unsigned sz=14) {
+    auto labelText = [&](const std::string& s, float x, float y, unsigned sz=15) {
         if (!fontOk) return;
         sf::Text t(font, s, sz);
         t.setFillColor(textCol);
@@ -395,14 +399,14 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
     };
 
     auto validInputs = [&]()->bool {
-        // trivial validation: non-empty fields
-        if (v_save_path.empty() || v_voice_dir.empty() || v_formatter.empty()) {
-            std::cerr << "Validation failed: required fields cannot be empty.\n";
+        if (v_voice_dir.empty()) {
+            std::cerr << "Validation failed: Voice Notes directory cannot be empty.\n";
             return false;
         }
         std::cout << "All inputs valid.\n";
         return true;
     };
+    
 
     while (win.isOpen()) {
         // caret blink
@@ -450,13 +454,11 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
                             if (!validInputs()) {
                                 std::cerr << "Invalid inputs; please fill all required fields.\n";
                             } else {
-                                Settings::save_path = v_save_path;
                                 // Ensure folder exists (avoid iterator throws later)
                                 std::error_code ec_mkdir;
                                 std::filesystem::create_directories(v_voice_dir, ec_mkdir);
                                 Settings::voice_notes_path = v_voice_dir;
                                 Settings::audio_input_device = v_input_dev;
-                                Settings::post_formatter = v_formatter;
                                 Settings::keybinding_start_stop_recording = v_hot_rec;
                                 Settings::keybinding_open_notes_window   = v_hot_notes;
                                 Settings::always_on_top   = v_topmost;
@@ -501,10 +503,8 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
                 } else if (k->scancode == sf::Keyboard::Scancode::Enter) {
                     // Treat Enter like OK
                     if (validInputs()) {
-                        Settings::save_path = v_save_path;
                         Settings::voice_notes_path = v_voice_dir;
                         Settings::audio_input_device = v_input_dev;
-                        Settings::post_formatter = v_formatter;
                         Settings::keybinding_start_stop_recording = v_hot_rec;
                         Settings::keybinding_open_notes_window   = v_hot_notes;
                         Settings::always_on_top   = v_topmost;
@@ -539,7 +539,7 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
         for (int i = 0; i < (int)fields.size(); ++i) {
             const bool isActive = (i == focused);
             drawBox(fields[i].box, isActive);
-            labelText(fields[i].label, fields[i].box.position.x + 6.f, fields[i].box.position.y - 18.f);
+            labelText(fields[i].display, fields[i].box.position.x + 6.f, fields[i].box.position.y - 22.f);
             if (fontOk) {
                 sf::Text val(font, *fields[i].s, 16);
                 val.setFillColor(textCol);
@@ -558,7 +558,7 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
         }
 
         // Mic dropdown (collapsed face)
-        labelText("audio_input_device", dd_label.position.x, dd_label.position.y);
+        labelText("Microphone input device", dd_label.position.x, dd_label.position.y-2.f);
         drawBox(dd_box, false);
         if (fontOk) {
             // Ellipsize if needed
@@ -584,10 +584,10 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
 
         // Toggles
         drawBox(box_topmost, false);
-        labelText(std::string("always_on_top: ") + (v_topmost ? "true" : "false"),
+        labelText(std::string("Always on Top: ") + (v_topmost ? "true" : "false"),
                   box_topmost.position.x + 8.f, box_topmost.position.y + 4.f, 16);
         drawBox(box_hideTB, false);
-        labelText(std::string("hide_in_taskbar: ") + (v_hide_tb ? "true" : "false"),
+        labelText(std::string("Hide in Taskbar: ") + (v_hide_tb ? "true" : "false"),
                   box_hideTB.position.x + 8.f, box_hideTB.position.y + 4.f, 16);
 
         // Buttons
