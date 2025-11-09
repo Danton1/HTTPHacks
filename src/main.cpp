@@ -390,8 +390,11 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
 
     auto validInputs = [&]()->bool {
         // trivial validation: non-empty fields
-        if (v_save_path.empty() || v_voice_dir.empty() || v_formatter.empty())
+        if (v_save_path.empty() || v_voice_dir.empty() || v_formatter.empty()) {
+            std::cerr << "Validation failed: required fields cannot be empty.\n";
             return false;
+        }
+        std::cout << "All inputs valid.\n";
         return true;
     };
 
@@ -453,7 +456,7 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
                                 Settings::always_on_top   = v_topmost;
                                 Settings::hide_in_taskbar = v_hide_tb;
 
-                                if (!mgr.writeSettings(Settings())) {
+                                if (!mgr.writeSettings(mgr.getSettings())) {
                                     std::cerr << "Failed writing settings file.\n";
                                 } else {
                                     mgr.applySettings(); // re-read settings.txt
@@ -501,7 +504,7 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
                         Settings::always_on_top   = v_topmost;
                         Settings::hide_in_taskbar = v_hide_tb;
 
-                        if (!mgr.writeSettings(Settings())) {
+                        if (!mgr.writeSettings(mgr.getSettings())) {
                             std::cerr << "Failed writing settings file.\n";
                         } else {
                             mgr.applySettings();
@@ -631,7 +634,7 @@ int main()
     // Window
     sf::RenderWindow win(sf::VideoMode({HUB_W, HUB_H}), "Voice Notes", sf::Style::None);
     // Settings
-    SettingsManager settingsMgr("./build/bin/Debug/settings.txt");
+    SettingsManager settingsMgr("settings.txt");
     settingsMgr.applySettings();                     // load on start (reads file or creates defaults)
     setAlwaysOnTop(win, Settings::always_on_top);    // honor setting immediately
 
@@ -897,7 +900,7 @@ int main()
                             if(microphone.getString() == "mic") {
                                 startRecordAudioFromMicrophone();
                                 microphone.setString("stop");
-                                win.draw(microphone);   
+                                win.draw(microphone);
                             } else {
                                 stopRecordAudioFromMicrophone();
 
@@ -934,7 +937,7 @@ int main()
                             if (isPlaying) {
                                 player->stop();
                                 isPlaying = false;
-                                playBtn.setString("▶");
+                                playBtn.setString("play");
                             }
                         }
 
@@ -1056,7 +1059,7 @@ int main()
         // If finished playing, reset icon
         if (isPlaying && player && player->getStatus() != sf::Sound::Status::Playing) {
             isPlaying = false;
-            playBtn.setString("▶");
+            playBtn.setString("play");
         }
 
         win.display();
