@@ -273,6 +273,12 @@ static bool openSettingsWindow(sf::Window& parent, SettingsManager& mgr) {
     sf::RenderWindow win(sf::VideoMode({560u, 500u}), "Settings",
                          sf::Style::Titlebar | sf::Style::Close);
 
+                         sf::Image gearIcon;
+    // Set window icon
+    if (gearIcon.loadFromFile("assets/gear.png")) {
+        win.setIcon(gearIcon.getSize(), gearIcon.getPixelsPtr());
+    }
+
     // --- Center on screen (Windows) / else center relative to parent ---
 #if defined(_WIN32)
     int screenW = GetSystemMetrics(SM_CXSCREEN);
@@ -633,6 +639,13 @@ int main()
 {
     // Window
     sf::RenderWindow win(sf::VideoMode({HUB_W, HUB_H}), "Voice Notes", sf::Style::None);
+    // Window / taskbar icon
+    sf::Image appIcon;
+    if (appIcon.loadFromFile("assets/icon.png")) {
+        win.setIcon(appIcon.getSize(), appIcon.getPixelsPtr());
+    } else {
+        std::cerr << "Missing assets/icon.png for window icon\n";
+    }
     // Settings
     SettingsManager settingsMgr("settings.txt");
     settingsMgr.applySettings();                     // load on start (reads file or creates defaults)
@@ -692,23 +705,56 @@ int main()
     closeX.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 26.f, 6.f));
     sf::FloatRect closeBounds = closeX.getGlobalBounds();
 
-    // Record button
-    sf::Text microphone(font, "mic", 20);
-    microphone.setFillColor(textCol);
-    microphone.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 110.f, 6.f));
-    sf::FloatRect microphoneBounds = microphone.getGlobalBounds();
+        // --- Header icons as sprites (uniform size & aligned) ---
 
-    // Settings gear (⚙️)
-    sf::Text gear(font, "settings", 18);
-    gear.setFillColor(textCol);
-    gear.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 180.f, 6.f)); // between mic and plus
-    sf::FloatRect gearBounds = gear.getGlobalBounds();
+    // State flags
+    bool isRecording = false;            // replaces string check "mic"/"stop"
+    // isPlaying already exists below; keep it for the note player
 
-    // Play/Pause button for selected note
-    sf::Text playBtn(font, "play", 18);
-    playBtn.setFillColor(textCol);
-    playBtn.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 220.f, 7.f));
-    sf::FloatRect playBounds = playBtn.getGlobalBounds();
+    // Load textures
+    sf::Texture texGear, texMicOff, texMicOn, texPlay, texPause;
+    if (!texGear.loadFromFile("assets/gear.png"))     std::cerr << "Missing assets/gear.png\n";
+    if (!texMicOff.loadFromFile("assets/mic_off.png"))std::cerr << "Missing assets/mic_off.png\n";
+    if (!texMicOn.loadFromFile("assets/mic_on.png"))  std::cerr << "Missing assets/mic_on.png\n";
+    if (!texPlay.loadFromFile("assets/play.png"))     std::cerr << "Missing assets/play.png\n";
+    if (!texPause.loadFromFile("assets/pause.png"))   std::cerr << "Missing assets/pause.png\n";
+
+    texGear.setSmooth(true);
+    texMicOff.setSmooth(true);
+    texMicOn.setSmooth(true);
+    texPlay.setSmooth(true);
+    texPause.setSmooth(true);
+
+    // Helper: scale a sprite so its longest side = ICON_PX
+    auto fitIcon = [](sf::Sprite& sp, float ICON_PX) {
+        sf::Vector2u sz = sp.getTexture().getSize();
+        if (sz.x == 0 || sz.y == 0) return;
+        float scale = ICON_PX / static_cast<float>(std::max(sz.x, sz.y));
+        sp.setScale(sf::Vector2f(scale, scale));
+    };
+
+    const float ICON_PX = 32.0f;               // uniform intended pixel size
+    const float ICON_Y  = 2.0f;                // vertical alignment in header
+    // Place left → right: play, mic, gear, plus, close
+    const float X_PLAY  = static_cast<float>(HUB_W) - 195.0f;
+    const float X_MIC   = static_cast<float>(HUB_W) - 160.0f;
+    const float X_GEAR  = static_cast<float>(HUB_W) - 125.0f;
+
+    sf::Sprite spPlay(texPlay);
+    fitIcon(spPlay, ICON_PX);
+    spPlay.setPosition({ X_PLAY, ICON_Y });
+    sf::FloatRect playBounds = spPlay.getGlobalBounds();
+
+    sf::Sprite spMic(texMicOff);
+    fitIcon(spMic, ICON_PX);
+    spMic.setPosition({ X_MIC, ICON_Y });
+    sf::FloatRect micBounds = spMic.getGlobalBounds();
+
+    sf::Sprite spGear(texGear);
+    fitIcon(spGear, ICON_PX);
+    spGear.setPosition({ X_GEAR, ICON_Y });
+    sf::FloatRect gearBounds = spGear.getGlobalBounds();
+
 
     // Notes
     std::vector<Note> notes = scanVoiceNotes();
@@ -736,7 +782,7 @@ int main()
         if (isPlaying && player) {
             player->stop();
             isPlaying = false;
-            playBtn.setString("play");
+            spPlay.setTexture(texPlay);
             return;
         }
 
@@ -745,10 +791,10 @@ int main()
             std::cerr << "Failed to load " << n.wavPath << "\n";
             return;
         }
-        player.emplace(playBuffer);      // <-- construct with buffer (SFML 3)
+        player.emplace(playBuffer);
         player->play();
         isPlaying = true;
-        playBtn.setString("stop");
+        spPlay.setTexture(texPause);
     };
 
     // Scrolling
@@ -869,52 +915,67 @@ int main()
                             selected = (int)notes.size() - 1;
                             editorScroll = 0.f;
                             requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
-                        } else if (gearBounds.contains(mp)) {
-                            // Temporarily drop top-most so the dialog isn’t hidden
+                        }     else if (gearBounds.contains(mp)) {
+                            // Temporarily drop top-most so the dialog isn’t hidden behind the main window
                             setAlwaysOnTop(win, false);
                             bool changed = openSettingsWindow(win, settingsMgr);
                             // Re-apply main window top-most according to current setting
                             setAlwaysOnTop(win, Settings::always_on_top);
-
+                    
                             if (changed) {
-                                // Reflect new folder immediately; never throw here
+                                // Refresh based on new folder / device, etc.
                                 auto prevSel = selected;
                                 auto v = scanVoiceNotes();
                                 if (!v.empty()) {
                                     notes = std::move(v);
-                                    // Keep selection in-bounds
                                     if (prevSel >= (int)notes.size()) prevSel = (int)notes.size() - 1;
                                     if (prevSel < 0) prevSel = 0;
                                     selected = prevSel;
                                 } else {
-                                    // Nothing in the folder? Create one starter note
                                     auto n = createNewTextNote();
                                     notes.clear();
                                     notes.push_back(std::move(n));
                                     selected = 0;
                                 }
                             }
-                        } else if (playBounds.contains(mp)) {
-                            playSelected();
-                        } else if(microphoneBounds.contains(mp)) {
-                            if(microphone.getString() == "mic") {
+                        }
+                        else if (playBounds.contains(mp)) {
+                            // Toggle play/pause for selected note
+                            if (selected < 0 || selected >= static_cast<int>(notes.size())) {
+                                // nothing
+                            } else if (!notes[selected].wavPath.empty() && std::filesystem::exists(notes[selected].wavPath)) {
+                                // If already playing, stop
+                                if (isPlaying && player) {
+                                    player->stop();
+                                    isPlaying = false;
+                                    spPlay.setTexture(texPlay);
+                                } else {
+                                    if (!playBuffer.loadFromFile(notes[selected].wavPath)) {
+                                        std::cerr << "Failed to load " << notes[selected].wavPath << "\n";
+                                    } else {
+                                        player.emplace(playBuffer);
+                                        player->play();
+                                        isPlaying = true;
+                                        spPlay.setTexture(texPause);
+                                    }
+                                }
+                            }
+                        }
+                        else if (micBounds.contains(mp)) {
+                            if (!isRecording) {
                                 startRecordAudioFromMicrophone();
-                                microphone.setString("stop");
-                                win.draw(microphone);
+                                isRecording = true;
+                                spMic.setTexture(texMicOn);
                             } else {
                                 stopRecordAudioFromMicrophone();
-
-                                // Refresh list and select newest note (assumes filename timestamp ordering)
-                                auto beforeCount = notes.size();
+                                isRecording = false;
+                                spMic.setTexture(texMicOff);
+                    
+                                // Refresh newest notes after recording/transcription
                                 notes = scanVoiceNotes();
-                                if (!notes.empty()) {
-                                    selected = 0; // because we sort newest-first by base
-                                    // Optionally, find exact newest by comparing txt/wav times if you prefer
-                                }
-
-                                microphone.setString("mic");
-                                win.draw(microphone);
+                                if (!notes.empty()) selected = 0;
                             }
+                    
                         } else {
                             dragging = true;
                             sf::Vector2i mouseScreen = sf::Mouse::getPosition();
@@ -937,7 +998,7 @@ int main()
                             if (isPlaying) {
                                 player->stop();
                                 isPlaying = false;
-                                playBtn.setString("play");
+                                spPlay.setTexture(texPlay);
                             }
                         }
 
@@ -984,13 +1045,17 @@ int main()
 
         // Header
         win.draw(headerRect);
+
+        // sprites don’t depend on font — always draw them
+        win.draw(spPlay);
+        win.draw(spGear);
+        win.draw(spMic);
+
+        // text only if font is available
         if (font.getInfo().family.size()) {
             win.draw(titleText);
             win.draw(plus);
             win.draw(closeX);
-            win.draw(playBtn);
-            win.draw(gear);
-            win.draw(microphone);
         }
 
         // List panel
@@ -1059,8 +1124,8 @@ int main()
         // If finished playing, reset icon
         if (isPlaying && player && player->getStatus() != sf::Sound::Status::Playing) {
             isPlaying = false;
-            playBtn.setString("play");
-        }
+            spPlay.setTexture(texPlay);
+        }        
 
         win.display();
     }
