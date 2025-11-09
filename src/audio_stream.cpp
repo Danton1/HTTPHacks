@@ -1,4 +1,4 @@
-#include <../whisper/include/whisper.h>
+#include "whisper.h"
 #include <SFML/Audio/SoundBufferRecorder.hpp>
 #include <SFML/Audio/SoundBuffer.hpp>
 #include <iostream>
@@ -28,69 +28,10 @@ string getTimestamp() {
     return string(buf);
 }
 
-sf::SoundBufferRecorder recorder;
-
-int startRecordAudioFromMicrophone() {
-    bool recordLoop = true;
-    string recordTextInput;
-
-    // first check if an input audio device is available on the system
-    if (!sf::SoundBufferRecorder::isAvailable())
-    {
-        // error: audio capture is not available on this system
-        cout << "audio capture device is not found";
-        return 1;
-    }
-
-    if (!Settings::audio_input_device.empty()) {
-        recorder.setDevice(Settings::audio_input_device); // ignore failure -> SFML will keep current
-    }
-    // start the capture
-
-    if (!recorder.start()) {
-        // error: failed to start audio capture
-        cout << "failed to start audio capture";
-        return 1;
-    }
-
-    cout << "Recording..." << endl;
-
-    return 0;
-}
-
-int stopRecordAudioFromMicrophone() {    
-    // stop the capture
-    recorder.stop();
-    
-    // retrieve the buffer that contains the captured audio data
-    const sf::SoundBuffer& buffer = recorder.getBuffer();
-
-    // Save .wav
-    string baseName = "note_" + getTimestamp();
-    std::string dir = Settings::voice_notes_path;
-    if (!dir.empty() && (dir.back() != '/' && dir.back() != '\\')) dir.push_back('/');
-    std::string audioPath = dir + baseName + ".wav";
-    std::string textPath  = dir + baseName + ".txt";
-
-
-    std::filesystem::create_directories(Settings::voice_notes_path);
-    if (!buffer.saveToFile(audioPath)) {
-        cerr << "Failed to save audio.\n";
-        return 1;
-    }
-    cout << "Saved: " << audioPath << "\n";
-
-    // Save empty txt file
-    ofstream out(textPath);
-    cout<<"Saved: " << textPath << "\n";
-
-    return 0;
-}
-
-int sendAudioFileToWhisper() {
+int sendAudioFileToWhisper(std::string audioPath, std::string textPath) {
     // Load the recorded WAV file saved by stopRecordAudioFromMicrophone()
     sf::SoundBuffer buffer;
-    if (!buffer.loadFromFile("record.wav")) {
+    if (!buffer.loadFromFile(audioPath)) {
         std::cerr << "Failed to load record.wav\n";
         return 1;
     }
@@ -165,13 +106,77 @@ int sendAudioFileToWhisper() {
         return 5;
     }
 
-    // print segments
+    // print segments to text file
+    ofstream audioTextFile;
+    audioTextFile.open(textPath);
     const int n_segments = whisper_full_n_segments(ctx);
     for (int i = 0; i < n_segments; ++i) {
         const char *seg_text = whisper_full_get_segment_text(ctx, i);
-        printf("%s\n", seg_text ? seg_text : "");
+        audioTextFile << (seg_text ? seg_text : "") << '\n';
+    }
+    
+    audioTextFile.close();
+    whisper_free(ctx);
+    return 0;
+}
+
+sf::SoundBufferRecorder recorder;
+
+int startRecordAudioFromMicrophone() {
+    bool recordLoop = true;
+    string recordTextInput;
+
+    // first check if an input audio device is available on the system
+    if (!sf::SoundBufferRecorder::isAvailable())
+    {
+        // error: audio capture is not available on this system
+        cout << "audio capture device is not found";
+        return 1;
     }
 
-    whisper_free(ctx);
+    if (!Settings::audio_input_device.empty()) {
+        recorder.setDevice(Settings::audio_input_device); // ignore failure -> SFML will keep current
+    }
+    // start the capture
+
+    if (!recorder.start()) {
+        // error: failed to start audio capture
+        cout << "failed to start audio capture";
+        return 1;
+    }
+
+    cout << "Recording..." << endl;
+
+    return 0;
+}
+
+int stopRecordAudioFromMicrophone() {    
+    // stop the capture
+    recorder.stop();
+    
+    // retrieve the buffer that contains the captured audio data
+    const sf::SoundBuffer& buffer = recorder.getBuffer();
+
+    // Save .wav
+    string baseName = "note_" + getTimestamp();
+    std::string dir = Settings::voice_notes_path;
+    if (!dir.empty() && (dir.back() != '/' && dir.back() != '\\')) dir.push_back('/');
+    std::string audioPath = dir + baseName + ".wav";
+    std::string textPath  = dir + baseName + ".txt";
+
+
+    std::filesystem::create_directories(Settings::voice_notes_path);
+    if (!buffer.saveToFile(audioPath)) {
+        cerr << "Failed to save audio.\n";
+        return 1;
+    }
+    cout << "Saved: " << audioPath << "\n";
+
+    // Save empty txt file
+    ofstream out(textPath);
+    cout<<"Saved: " << textPath << "\n";
+
+    sendAudioFileToWhisper(audioPath, textPath);
+
     return 0;
 }
