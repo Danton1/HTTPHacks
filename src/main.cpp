@@ -40,7 +40,7 @@
 static constexpr unsigned HUB_W = 380;
 static constexpr unsigned HUB_H = 520;
 static const char* FONT_PATH = "C:/Windows/Fonts/segoeui.ttf"; // <-- change if needed
-static const char* SAVE_PATH = "notes.json";
+// static const char* SAVE_PATH = "notes.json";
 
 // helper: SFML 3 FloatRect = {position, size}
 inline sf::FloatRect makeRect(float x, float y, float w, float h) {
@@ -121,7 +121,7 @@ static std::string jsonEscape(const std::string& s)
 
 static void saveNotes(const std::vector<Note>& notes)
 {
-    std::ofstream f(SAVE_PATH, std::ios::binary);
+    std::ofstream f(Settings::save_path, std::ios::binary);
     if (!f) return;
     f << "{ \"notes\": [";
     for (size_t i = 0; i < notes.size(); ++i) {
@@ -134,7 +134,7 @@ static void saveNotes(const std::vector<Note>& notes)
 
 static std::vector<Note> loadNotes()
 {
-    std::ifstream f(SAVE_PATH, std::ios::binary);
+    std::ifstream f(Settings::save_path, std::ios::binary);
     if (!f) return {};
     std::string s((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     std::vector<Note> out;
@@ -552,6 +552,11 @@ int main()
 {
     // Window
     sf::RenderWindow win(sf::VideoMode({HUB_W, HUB_H}), "Voice Notes", sf::Style::None);
+    // Settings
+    SettingsManager settingsMgr("settings.txt");
+    settingsMgr.applySettings();                     // load on start (reads file or creates defaults)
+    setAlwaysOnTop(win, Settings::always_on_top);    // honor setting immediately
+
     win.setFramerateLimit(144);
     setAlwaysOnTop(win, true);
     win.setPosition(rightEdgeStart(HUB_W, HUB_H));
@@ -589,7 +594,7 @@ int main()
 
     // Font
     sf::Font font;
-    font.openFromFile(FONT_PATH); // SFML 3: openFromFile
+    bool ok = font.openFromFile(FONT_PATH); (void)ok; // avoid nodiscard warning
 
     // Text UI
     sf::Text titleText(font, "Voice Notes", 16);
@@ -612,6 +617,13 @@ int main()
     microphone.setFillColor(textCol);
     microphone.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 110.f, 6.f));
     sf::FloatRect microphoneBounds = microphone.getGlobalBounds();
+
+    // Settings gear (⚙️)
+    sf::Text gear(font, u8"\u2699", 20);
+    gear.setFillColor(textCol);
+    gear.setPosition(sf::Vector2f(static_cast<float>(HUB_W) - 92.f, 6.f)); // between mic and plus
+    sf::FloatRect gearBounds = gear.getGlobalBounds();
+
 
     // Notes
     std::vector<Note> notes = loadNotes();
@@ -731,6 +743,16 @@ int main()
                             selected = static_cast<int>(notes.size()) - 1;
                             editorScroll = 0.f;
                             requestSaveAt = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+                        } else if (gearBounds.contains(mp)) {
+                            // Make sure the settings dialog isn’t hidden
+                            setAlwaysOnTop(win, false);
+                            if (openSettingsWindow(win, settingsMgr)) {
+                                // Re-apply settings that affect the main window
+                                setAlwaysOnTop(win, Settings::always_on_top);
+                            } else {
+                                // Even on cancel, restore to current setting
+                                setAlwaysOnTop(win, Settings::always_on_top);
+                            }
                         } else if(microphoneBounds.contains(mp)) {
                             if(microphone.getString() == "mic") {
                                 startRecordAudioFromMicrophone();
@@ -803,6 +825,7 @@ int main()
             win.draw(titleText);
             win.draw(plus);
             win.draw(closeX);
+            win.draw(gear);
             win.draw(microphone);
         }
 
