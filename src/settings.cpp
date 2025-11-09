@@ -18,7 +18,7 @@ std::string Settings::keybinding_open_notes_window;
 
 // Constructor implementation
 Settings::Settings() {
-    save_path = "notes.json";
+    save_path = "./build/bin/Debug/notes.json";
     voice_notes_path = "voice_notes/";
     audio_input_device = "default";
     always_on_top = true;
@@ -30,7 +30,7 @@ Settings::Settings() {
 
 // reset_settings implementation
 void Settings::reset_settings() {
-    save_path = "notes.json";
+    save_path = "./build/bin/Debug/notes.json";
     voice_notes_path = "voice_notes/";
     audio_input_device = "default";
     always_on_top = true;
