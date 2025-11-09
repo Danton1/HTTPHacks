@@ -23,6 +23,8 @@ public:
     explicit SettingsManager(const std::string& path);
     Settings getSettings() const;
     bool applySettings();
+    const std::string& getSettingsPath() const;
+    bool writeSettings(const Settings& s);
 
 private:
     std::string settingsPath;

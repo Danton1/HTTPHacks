@@ -2,7 +2,8 @@
 #include <iostream>
 #include <string>
 #include <thread>
-#include <chrono>
+#include <fstream>
+
 using namespace std;
 
 string getTimestamp() {
@@ -47,8 +48,6 @@ int stopRecordAudioFromMicrophone() {
     // retrieve the buffer that contains the captured audio data
     const sf::SoundBuffer& buffer = recorder.getBuffer();
 
-    buffer.saveToFile("record.wav");
-
     // Save .wav
     string baseName = "note_" + getTimestamp();
     string audioPath = "voice_notes/" + baseName + ".wav";
@@ -59,6 +58,11 @@ int stopRecordAudioFromMicrophone() {
         cerr << "Failed to save audio.\n";
         return 1;
     }
+    cout << "Saved: " << audioPath << "\n";
+
+    // Save empty txt file
+    ofstream out(textPath);
+    cout<<"Saved: " << textPath << "\n";
 
     return 0;
 }

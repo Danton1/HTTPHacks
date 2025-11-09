@@ -101,3 +101,25 @@ bool SettingsManager::readSettings(std::string path){
     settingsFile.close();
     return true;
 }
+
+const std::string& SettingsManager::getSettingsPath() const {
+    return settingsPath;
+}
+
+bool SettingsManager::writeSettings(const Settings& s) {
+    std::ofstream out(settingsPath, std::ios::trunc);
+    if (!out.is_open()) {
+        std::cerr << "Failed to open settings file for write: " << settingsPath << "\n";
+        return false;
+    }
+    // Persist in the same key=value format that readSettings() parses
+    out << "save_path=" << Settings::save_path << "\n";
+    out << "voice_notes_path=" << Settings::voice_notes_path << "\n";
+    out << "audio_input_device=" << Settings::audio_input_device << "\n";
+    out << "always_on_top=" << (Settings::always_on_top ? "true" : "false") << "\n";
+    out << "hide_in_taskbar=" << (Settings::hide_in_taskbar ? "true" : "false") << "\n";
+    out << "post_formatter=" << Settings::post_formatter << "\n";
+    out << "keybinding_start_stop_recording=" << Settings::keybinding_start_stop_recording << "\n";
+    out << "keybinding_open_notes_window=" << Settings::keybinding_open_notes_window << "\n";
+    return true;
+}
