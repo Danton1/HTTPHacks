@@ -29,6 +29,8 @@
 #include <SFML/Audio/SoundRecorder.hpp>
 #include <filesystem>
 #include <unordered_map>
+#include <thread>
+#include <atomic>
 
 #include "SFML/Audio/Sound.hpp"
 #include "SFML/Audio/SoundBuffer.hpp"
@@ -188,6 +190,91 @@ static std::string nowShort()
     oss << std::put_time(&tm, "%H:%M");
     return oss.str();
 }
+
+#if defined(_WIN32)
+// ---- Map our Hotkey (parsed from settings) to Win32 RegisterHotKey flags ----
+static bool hotkeyToWin32(const Hotkey& h, UINT& mods, UINT& vk) {
+    if (!h.valid) return false;
+    mods = 0;
+    if (h.ctrl)  mods |= MOD_CONTROL;
+    if (h.alt)   mods |= MOD_ALT;
+    if (h.shift) mods |= MOD_SHIFT;
+
+    // Letters
+    if (h.key >= sf::Keyboard::Scancode::A && h.key <= sf::Keyboard::Scancode::Z) {
+        vk = 'A' + (UINT)((int)h.key - (int)sf::Keyboard::Scancode::A);
+        return true;
+    }
+    // Digits (top row)
+    if (h.key >= sf::Keyboard::Scancode::Num0 && h.key <= sf::Keyboard::Scancode::Num9) {
+        vk = '0' + (UINT)((int)h.key - (int)sf::Keyboard::Scancode::Num0);
+        return true;
+    }
+    // Function keys
+    if (h.key >= sf::Keyboard::Scancode::F1 && h.key <= sf::Keyboard::Scancode::F24) {
+        vk = VK_F1 + (UINT)((int)h.key - (int)sf::Keyboard::Scancode::F1);
+        return true;
+    }
+    // Common extras
+    switch (h.key) {
+        case sf::Keyboard::Scancode::Space:   vk = VK_SPACE;   return true;
+        case sf::Keyboard::Scancode::Enter:   vk = VK_RETURN;  return true;
+        case sf::Keyboard::Scancode::Tab:     vk = VK_TAB;     return true;
+        case sf::Keyboard::Scancode::Escape:  vk = VK_ESCAPE;  return true;
+        default: break;
+    }
+    return false;
+}
+
+// ---- Simple global-hotkey listener on its own message thread ----
+struct GlobalHotkeyListener {
+    std::thread th;
+    std::atomic_bool running{false};
+    std::atomic_bool trigRecord{false};
+    std::atomic_bool trigFocus{false};
+    UINT idRecord{1};
+    UINT idFocus{2};
+
+    void start(const Hotkey& rec, const Hotkey& focus) {
+        stop();
+        running = true;
+        th = std::thread([=]() {
+            // Register in this thread so WM_HOTKEY messages are sent here
+            UINT m1=0, v1=0, m2=0, v2=0;
+            bool ok1 = hotkeyToWin32(rec, m1, v1);
+            bool ok2 = hotkeyToWin32(focus, m2, v2);
+
+            if (ok1) RegisterHotKey(nullptr, idRecord, m1, v1);
+            if (ok2) RegisterHotKey(nullptr, idFocus,  m2, v2);
+
+            MSG msg;
+            while (running) {
+                // This blocks until a message arrives; returns 0 on WM_QUIT
+                BOOL r = GetMessage(&msg, nullptr, 0, 0);
+                if (r <= 0) break;
+                if (msg.message == WM_HOTKEY) {
+                    if (msg.wParam == idRecord) trigRecord.store(true);
+                    if (msg.wParam == idFocus)  trigFocus.store(true);
+                }
+            }
+
+            if (ok1) UnregisterHotKey(nullptr, idRecord);
+            if (ok2) UnregisterHotKey(nullptr, idFocus);
+        });
+    }
+
+    void stop() {
+        if (running.exchange(false)) {
+            // Post a quit to wake the thread if it’s blocked in GetMessage
+            PostThreadMessageA(GetThreadId(th.native_handle()), WM_QUIT, 0, 0);
+            if (th.joinable()) th.join();
+        }
+    }
+
+    ~GlobalHotkeyListener() { stop(); }
+};
+#endif // _WIN32
+
 
 // Build a normalized folder path with trailing slash
 static std::string normalizedVoiceDir() {
@@ -734,6 +821,11 @@ int main()
     Hotkey hkRecord = parseHotkey(Settings::keybinding_start_stop_recording);
     Hotkey hkOpenNotes = parseHotkey(Settings::keybinding_open_notes_window);
 
+    #if defined(_WIN32)
+    GlobalHotkeyListener gh;
+    gh.start(hkRecord, hkOpenNotes);
+    #endif
+
     win.setFramerateLimit(144);
     win.setPosition(rightEdgeStart(HUB_W, HUB_H));
 
@@ -1049,6 +1141,10 @@ int main()
                                 // Re-parse hotkeys if user changed them
                                 hkRecord   = parseHotkey(Settings::keybinding_start_stop_recording);
                                 hkOpenNotes= parseHotkey(Settings::keybinding_open_notes_window);
+                                #if defined(_WIN32)
+                                gh.start(hkRecord, hkOpenNotes);
+                                #endif
+
                             }
                         }
                         else if (playBounds.contains(mp)) {
@@ -1149,6 +1245,23 @@ int main()
             }
         }
 
+        // ---- Global hotkeys (Windows) ----
+        #if defined(_WIN32)
+        // Fire actions if a global hotkey thread flagged them:
+        if (gh.trigRecord.exchange(false)) {
+            toggleRecording();
+        }
+        if (gh.trigFocus.exchange(false)) {
+            // Bring window to front
+            setAlwaysOnTop(win, true); // ensure top-most (your setting may keep it)
+            HWND hwnd = (HWND)win.getNativeHandle();
+            ShowWindow(hwnd, SW_SHOW);
+            SetForegroundWindow(hwnd);
+            // If you don't want permanent top-most, drop it back according to settings:
+            if (!Settings::always_on_top) setAlwaysOnTop(win, false);
+        }
+        #endif
+
         // Autosave throttle
         maybeAutosave();
 
@@ -1241,5 +1354,9 @@ int main()
 
         win.display();
     }
+    #if defined(_WIN32)
+    gh.stop();
+    #endif
+
     return 0;
 }
