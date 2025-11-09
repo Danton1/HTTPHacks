@@ -553,7 +553,7 @@ int main()
     // Window
     sf::RenderWindow win(sf::VideoMode({HUB_W, HUB_H}), "Voice Notes", sf::Style::None);
     // Settings
-    SettingsManager settingsMgr("settings.txt");
+    SettingsManager settingsMgr("./build/bin/Debug/settings.txt");
     settingsMgr.applySettings();                     // load on start (reads file or creates defaults)
     setAlwaysOnTop(win, Settings::always_on_top);    // honor setting immediately
 
