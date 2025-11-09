@@ -31,7 +31,7 @@ int stopRecordAudioFromMicrophone() {
     // retrieve the buffer that contains the captured audio data
     const sf::SoundBuffer& buffer = recorder.getBuffer();
 
-    buffer.saveToFile("record.ogg");
+    buffer.saveToFile("record.wav");
 
     return 0;
 }
