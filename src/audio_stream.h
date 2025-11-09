@@ -3,5 +3,6 @@
 
 int startRecordAudioFromMicrophone();
 int stopRecordAudioFromMicrophone();
+int sendAudioFileToWhisper();
 
 #endif

@@ -374,6 +374,7 @@ int main()
                                 win.draw(microphone);   
                             } else {
                                 stopRecordAudioFromMicrophone();
+                                sendAudioFileToWhisper();
                                 microphone.setString("mic");
                                 win.draw(microphone);
                             }
